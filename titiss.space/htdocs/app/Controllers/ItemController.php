@@ -194,11 +194,85 @@ class ItemController extends BaseController
         $item = $this->model->find($id);
         if ($item) {
             $newEpisode = (int) $item->episode + 1;
-            $this->model->update($id, ['episode' => $newEpisode]);
-            (new AuditLogModel())->logAction('Incrémentation Rapide', "Mise à jour de la carte ID {$id} ('{$item->titre}') : Épisode passé à {$newEpisode}.");
+            $newSaison = (int) $item->saison;
+            $totalEpisodes = (int) $item->total_episodes;
+            $totalSaisons = (int) $item->total_saisons;
+            
+            $updateData = [];
+
+            // Si on dépasse le nombre max d'épisodes de la saison actuelle
+            if ($totalEpisodes > 0 && $newEpisode > $totalEpisodes) {
+                
+                // Vérification : a-t-on aussi atteint la toute dernière saison ?
+                if ($totalSaisons > 0 && $newSaison >= $totalSaisons) {
+                    $updateData['status'] = 'Terminé';
+                    $newEpisode = $totalEpisodes; // On fige l'épisode à son maximum
+                    $updateData['episode'] = $newEpisode;
+                    
+                    $logMessage = "Mise à jour de la carte ID {$id} ('{$item->titre}') : Statut passé à Terminé.";
+                } else {
+                    // Sinon, passage classique à la saison suivante
+                    $newEpisode = 1;
+                    $newSaison++;
+                    $updateData['saison'] = $newSaison;
+                    $updateData['episode'] = $newEpisode;
+                    
+                    $logMessage = "Mise à jour de la carte ID {$id} ('{$item->titre}') : Épisode passé à {$newEpisode} (Saison {$newSaison})";
+                    
+                    // Recalcul du nombre max d'épisodes de la NOUVELLE saison via l'API TMDB 
+                    $apiKey = env('TMDB_API_KEY') ?? 'ba55da0439797150ed58c4e524584823';
+                    $client = \Config\Services::curlrequest([
+                        'timeout' => 5,
+                        'http_errors' => false,
+                        'verify' => false
+                    ]);
+                    
+                    try {
+                        $url = 'https://api.themoviedb.org/3/search/multi?query='.urlencode($item->titre)."&api_key={$apiKey}&language=fr-FR";
+                        $response = $client->get($url);
+                        
+                        if ($response->getStatusCode() === 200) {
+                            $body = json_decode($response->getBody(), true);
+                            if (!empty($body['results'])) {
+                                foreach ($body['results'] as $result) {
+                                    if (isset($result['media_type']) && $result['media_type'] === 'tv' && isset($result['id'])) {
+                                        $tvUrl = "https://api.themoviedb.org/3/tv/{$result['id']}?api_key={$apiKey}&language=fr-FR";
+                                        $tvResponse = $client->get($tvUrl);
+                                        
+                                        if ($tvResponse->getStatusCode() === 200) {
+                                            $tvBody = json_decode($tvResponse->getBody(), true);
+                                            if (isset($tvBody['seasons'])) {
+                                                foreach ($tvBody['seasons'] as $season) {
+                                                    if ($season['season_number'] == $newSaison) {
+                                                        $updateData['total_episodes'] = $season['episode_count'];
+                                                        break 2;
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    } catch (\Exception $e) {
+                        // On ignore silencieusement les erreurs de l'API
+                    }
+                }
+            } else {
+                $updateData['episode'] = $newEpisode;
+                $logMessage = "Mise à jour de la carte ID {$id} ('{$item->titre}') : Épisode passé à {$newEpisode}";
+            }
+
+            $this->model->update($id, $updateData);
+            (new \App\Models\AuditLogModel())->logAction('Incrémentation Rapide', $logMessage);
 
             if ($this->request->isAJAX()) {
-                return $this->response->setJSON(['success' => true, 'new_episode' => $newEpisode, 'csrf_token' => csrf_hash()]);
+                return $this->response->setJSON([
+                    'success' => true, 
+                    'new_episode' => $newEpisode, 
+                    'status' => $updateData['status'] ?? $item->status,
+                    'csrf_token' => csrf_hash()
+                ]);
             }
         }
         return redirect()->back();
