@@ -1,6 +1,5 @@
 <?php echo $this->extend('layout'); ?>
 <?php echo $this->section('content'); ?>
-
 <?php if (!auth()->loggedIn()) { ?>
 <!-- NOUVELLE LANDING PAGE (Visiteurs) -->
 <div class="landing-hero fade-in shadow-card"
@@ -12,18 +11,16 @@
         style="font-size: 1.15rem; color: var(--text-muted); max-width: 700px; margin: 0 auto 2.5rem auto; line-height: 1.6;">
         <?php echo env('SITENAME'); ?> est votre tableau de bord personnel. Organisez vos séries, films, animes, mangas
         et liens favoris.
-        Récupérez automatiquement les métadonnées, gérez vos statuts de visionnage et explorez les collections publiques
+        Gérez automatiquement les métadonnées, gérez vos statuts de visionnage et explorez les collections publiques
         !
     </p>
     <div style="display: flex; gap: 15px; justify-content: center; flex-wrap: wrap;">
         <a href="<?php echo base_url('register'); ?>" class="btn btn-primary"
             style="padding: 14px 32px; font-size: 1.1rem; border-radius: 50px;">Créer mon compte gratuit</a>
         <a href="<?php echo base_url('login'); ?>" class="btn btn-cancel"
-            style="padding: 14px 32px; font-size: 1.1rem; border-radius: 50px;">Me
-            connecter</a>
+            style="padding: 14px 32px; font-size: 1.1rem; border-radius: 50px;">Me connecter</a>
     </div>
 </div>
-
 <div class="public-invitation fade-in" style="text-align: center; margin-bottom: 3rem;">
     <h3 style="color: var(--text-main); font-size: 1.6rem; font-weight: 700;">Explorez les cartes publiques</h3>
     <p style="color: var(--text-muted); font-size: 1.05rem; max-width: 600px; margin: 0 auto;">Naviguez via les onglets
@@ -31,7 +28,6 @@
         <?php echo env('SITENAME'); ?>.</p>
 </div>
 <?php } else { ?>
-
 <!-- ACTIONS ADMIN & USER CONNECTÉ -->
 <div class="actions-container" style="align-items: flex-start;">
     <?php if (auth()->user()->inGroup('superadmin')) { ?>
@@ -71,10 +67,12 @@
 </div>
 <?php } ?>
 
-
 <?php if (empty($groupedItems)) { ?>
 <?php if (auth()->loggedIn()) { ?>
 <div class="empty-state">
+    <!-- NOUVEAU BOUTON YOUTUBE -->
+    <a href="<?php echo base_url('youtube/add'); ?>" class="btn"
+        style="background-color: var(--danger); color: white; margin: 0;">Flux RSS Youtube</a>
     <h2>Vous n'avez pas encore de cartes.</h2>
     <p>Commencez par en ajouter une !</p>
     <br>
@@ -91,12 +89,19 @@
     <input type="text" id="liveSearch" class="form-control" placeholder="Rechercher une œuvre... (titre, description)"
         autocomplete="off">
 </div>
-
 <?php $openDivision = $_GET['open'] ?? null; ?>
 <?php $openSub = $_GET['subopen'] ?? null; ?>
 <?php foreach ($groupedItems as $headerName => $divisions) { ?>
 <section class="header-section">
-    <h2 class="header-title"><?php echo htmlspecialchars($headerName); ?></h2>
+    <h2 class="header-title"><?php echo htmlspecialchars($headerName); ?>
+        <?php if (auth()->loggedIn() && $headerName === 'Vidéos') { ?>
+        <!-- NOUVEAU BOUTON YOUTUBE -->
+        <a href="<?php echo base_url('youtube/add'); ?>" class="btn"
+            style="background-color: var(--danger); color: white; margin: 0;">Flux RSS Youtube</a>
+        <?php } ?>
+    </h2>
+
+
     <?php foreach ($divisions as $divisionName => $subCategories) {
         $currentDivisionId = null;
         foreach ($subCategories as $items) {
@@ -140,7 +145,7 @@
                     if ($openSub && $openSub === $subCatName) {
                         $isSubOpen = 'open';
                     } elseif (!$openSub) {
-                        $isSubOpen = 'open'; // S'ouvre par défaut s'il n'y a pas de sous-catégorie précisée
+                        $isSubOpen = 'open'; 
                     }
                 }
                 ?>
@@ -180,10 +185,10 @@
                             <div class="cards-grid sortable-grid"
                                 style="padding-top: <?php echo $hasMultipleGroups ? '0' : '15px'; ?>;">
                                 <?php } ?>
+
                                 <?php foreach ($items as $item) {
                                     $canDragItem = auth()->loggedIn() && (auth()->user()->inGroup('superadmin') || (int) $item->id_user === (int) auth()->id());
                                     
-                                    // 1. On calcule si la sortie est dans le futur AVANT de générer la carte
                                     $isFuture = false;
                                     $dateSortieFormatted = '';
                                     $textColor = '';
@@ -198,7 +203,6 @@
                                         }
                                     }
                                     ?>
-                                <!-- 2. On empêche l'ajout de 'needs-dispo-check' si $isFuture est true -->
                                 <div class="card fade-in searchable-card <?php echo 'Terminé' === $item->status ? 'status-completed' : ((!empty($item->episode) && !$isFuture) ? 'needs-dispo-check' : ''); ?>"
                                     data-id="<?php echo esc($item->id); ?>"
                                     data-url="<?php echo htmlspecialchars($item->getFinalLink()); ?>">
@@ -218,7 +222,6 @@
                                             </div>
                                             <?php
                                             $isCheckable = false;
-                                            // 3. On empêche d'afficher "Vérification..." si la carte est dans le futur
                                             if (!empty($item->episode) && !$isFuture && isset($supportedDomains) && is_array($supportedDomains)) {
                                                 foreach ($supportedDomains as $domain) {
                                                     if (str_contains($item->getFinalLink(), $domain)) {
@@ -233,13 +236,11 @@
                                                 style="font-size: 0.8rem; font-weight: bold; margin-bottom: 5px; text-align: center; color: var(--info);">
                                                 Vérification...</div>
                                             <?php } ?>
-
                                             <h4 class="card-title search-target-title"
                                                 style="<?php echo $textColor; ?>">
                                                 <?php echo htmlspecialchars($item->titre); ?></h4>
                                             <p style="font-size: 0.8rem; color: var(--text-muted); margin: 0;">Status :
                                                 <?php echo htmlspecialchars($item->status); ?></p>
-
                                             <?php
                                             $isPendingNew = (2 == $item->is_public && auth()->loggedIn() && (int) $item->id_user === (int) auth()->id());
                                             $hasPendingRevision = (isset($pendingRevisionIds) && in_array($item->id, $pendingRevisionIds));
@@ -250,12 +251,10 @@
                                                 <?php echo $isPendingNew ? "En cours d'inspection (Non public)" : 'Modification en attente de validation'; ?>
                                             </div>
                                             <?php } ?>
-
                                             <?php if (!empty($item->description)) { ?>
                                             <p class="card-desc search-target-desc">
                                                 <?php echo htmlspecialchars($item->description); ?></p>
                                             <?php } ?>
-
                                             <div class="card-badges">
                                                 <?php if (!empty($item->saison)) { ?>
                                                 <div
