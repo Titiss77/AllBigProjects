@@ -172,8 +172,8 @@ html[data-theme="dark"] .logo-site {
 }
 
 /* =========================================
-   MENUS DÉROULANTS (Blocs Modernes)
-   ========================================= */
+MENUS DÉROULANTS (Blocs Modernes)
+========================================= */
 .division-section {
     margin-bottom: 1.5rem;
     background: var(--bg-card);
@@ -182,6 +182,8 @@ html[data-theme="dark"] .logo-site {
     box-shadow: var(--shadow-sm);
     transition: var(--transition);
     overflow: hidden;
+    contain: layout style;
+    /* Isole le rendu de la section pour accélérer l'ouverture */
 }
 
 .division-section:hover {
