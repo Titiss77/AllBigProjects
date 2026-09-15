@@ -45,7 +45,7 @@ class HomeController extends BaseController
         $model = new ItemModel();
         $userId = auth()->loggedIn() ? auth()->id() : null;
         
-        // Empêche le navigateur de garder l'HTML en cache (Bfcache) pour un affichage en temps réel
+        // Empêche le navigateur de garder l'HTML en cache pour un affichage en temps réel
         $this->response->noCache();
 
         $headersWithNoLogin = $model->getActiveHeaders($userId);
@@ -57,10 +57,19 @@ class HomeController extends BaseController
         $pendingTotal = 0;
         $toAdminCount = 0;
         $pendingRevisionIds = [];
+        $passedReleases = []; // <-- Nouvelle variable
 
         if (auth()->loggedIn()) {
             $revModel = new ItemRevisionModel();
             $pendingRevisionIds = $revModel->where('revision_status', 'pending')->findColumn('original_item_id') ?? [];
+            
+            // mais qui datent de moins de 7 jours.eferfsfr
+            $passedReleases = $model->join('division d', 'id_division = d.id')
+                                    ->where('id_user', $userId)
+                                    ->where('date_sortie IS NOT NULL')
+                                    ->where('date_sortie <=', date('Y-m-d H:i:s'))
+                                    ->where('date_sortie >=', date('Y-m-d H:i:s', strtotime('-3 days')))
+                                    ->findAll();
             
             if (auth()->user()->inGroup('admin', 'superadmin')) {
                 $pendingItemsCount = $model->where('is_public', 2)->countAllResults();
@@ -86,6 +95,7 @@ class HomeController extends BaseController
             'toAdminCount' => $toAdminCount,
             'supportedDomains' => $supportedDomains,
             'pendingRevisionIds' => $pendingRevisionIds,
+            'passedReleases' => $passedReleases, // <-- On l'envoie à la vue
         ]);
     }
 
