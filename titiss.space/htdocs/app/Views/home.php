@@ -30,12 +30,9 @@
     </p>
 </div>
 <?php } else { ?>
-
-<!-- NOTIFICATIONS GLOBALES DE SORTIES (Dates dépassées) -->
 <?php if (!empty($passedReleases)) { ?>
 <div style="display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 2rem;">
     <?php foreach ($passedReleases as $release) { 
-        // On crée une clé unique combinant l'ID et la date exacte
         $releaseKey = $release->id . '_' . strtotime($release->date_sortie);
     ?>
     <span class="release-badge" data-key="<?php echo $releaseKey; ?>"
