@@ -1,1 +1,2 @@
 htdocs/.env
+*.sql*

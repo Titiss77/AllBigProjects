@@ -15,7 +15,6 @@ class MetricController
     {
         $id_user = $_SESSION['user_id'];
         $history = $this->model->getAllHistory($id_user);
-
         require 'views/calculator_view.php';
     }
 
@@ -31,13 +30,18 @@ class MetricController
 
             $id = isset($_POST['id']) && !empty($_POST['id']) ? (int) $_POST['id'] : null;
             $id_user = $_SESSION['user_id'];
-
             $gender = $_POST['gender'] ?? 'male';
+            
+            $age = (int) ($_POST['age'] ?? 25);
             $height = (float) str_replace(',', '.', $_POST['height'] ?? 0);
             $weight = (float) str_replace(',', '.', $_POST['weight'] ?? 0);
             $neck = (float) str_replace(',', '.', $_POST['neck'] ?? 0);
             $waist = (float) str_replace(',', '.', $_POST['waist'] ?? 0);
-            $hip = isset($_POST['hip']) && '' !== $_POST['hip'] ? (float) str_replace(',', '.', $_POST['hip']) : 0;
+            $hip = (float) str_replace(',', '.', $_POST['hip'] ?? 0);
+            $wrist = (float) str_replace(',', '.', $_POST['wrist'] ?? 0);
+            $calf = (float) str_replace(',', '.', $_POST['calf'] ?? 0);
+            $thigh = (float) str_replace(',', '.', $_POST['thigh'] ?? 0);
+            
             $activity = (float) ($_POST['activity'] ?? 1.2);
             $isAthlete = isset($_POST['is_athlete']) && '1' == $_POST['is_athlete'];
 
@@ -45,72 +49,39 @@ class MetricController
                 ? $_POST['created_at'].' '.date('H:i:s')
                 : date('Y-m-d H:i:s');
 
-            if ($height <= 0 || $waist <= 0 || $neck <= 0) {
+            if ($height <= 0 || $waist <= 0 || $age <= 0) {
                 $this->sendJson(['success' => false, 'message' => 'Mensurations invalides ou incomplètes.']);
             }
 
-            // --- NOUVEAU MODÈLE HYBRIDE SCIENTIFIQUE ---
-            $diff = 0;
-            if ('male' === $gender) {
-                $diff = $waist - $neck;
-                if ($diff <= 0) {
-                    $this->sendJson(['success' => false, 'message' => 'Le tour de taille doit être supérieur au cou.']);
-                }
-                $lbmBoer = (0.407 * $weight) + (0.267 * $height) - 19.2;
-                if ($isAthlete) {
-                    $lbmBoer *= 1.08;
-                }
-                $density = 1.0324 - 0.19077 * log10($diff) + 0.15456 * log10($height);
-            } else {
-                $diff = $waist + $hip - $neck;
-                if ($diff <= 0) {
-                    $this->sendJson(['success' => false, 'message' => 'Mensurations invalides pour le calcul.']);
-                }
-                $lbmBoer = (0.252 * $weight) + (0.473 * $height) - 48.3;
-                if ($isAthlete) {
-                    $lbmBoer *= 1.05;
-                }
-                $density = 1.29579 - 0.35004 * log10($diff) + 0.221 * log10($height);
-            }
-
-            $bfNavy = max(0, (495 / $density) - 450);
-            $lbmNavy = $weight * (1 - ($bfNavy / 100));
-
-            $leanMass = ($lbmBoer + $lbmNavy) / 2;
-
-            $minFatPercent = 'male' === $gender ? 3.0 : 10.0;
-            $maxLbm = $weight * (1 - ($minFatPercent / 100));
-            $leanMass = min($maxLbm, max($weight * 0.4, $leanMass));
-
-            $fatMass = $weight - $leanMass;
-            $bodyFat = ($fatMass / $weight) * 100;
-
-            $bmr = 370 + (21.6 * $leanMass);
-            $tdee = $bmr * $activity;
-            // --------------------------------------------
+            // Récupération des données calculées via la méthode privée
+            $metrics = $this->computeMetrics($gender, $age, $height, $weight, $waist, $hip, $wrist, $calf, $thigh, $isAthlete, $activity);
 
             $data = [
                 ':id_user' => $id_user,
                 ':gender' => $gender,
+                ':age' => $age,
                 ':height' => $height,
                 ':weight' => $weight,
                 ':neck' => $neck,
                 ':waist' => $waist,
-                ':hip' => 'female' === $gender ? $hip : null,
+                ':hip' => $hip,
+                ':wrist' => $wrist,
+                ':calf' => $calf,
+                ':thigh' => $thigh,
                 ':activity' => $activity,
                 ':is_athlete' => $isAthlete ? 1 : 0,
-                ':body_fat' => round($bodyFat, 2),
-                ':fat_mass' => round($fatMass, 2),
-                ':lean_mass' => round($leanMass, 2),
-                ':bmr' => round($bmr),
-                ':tdee' => round($tdee),
+                ':body_fat' => $metrics['body_fat'],
+                ':fat_mass' => $metrics['fat_mass'],
+                ':lean_mass' => $metrics['lean_mass'],
+                ':bmr' => $metrics['bmr'],
+                ':tdee' => $metrics['tdee'],
                 ':created_at' => $createdAt,
             ];
 
             if ($id) {
                 $data[':id'] = $id;
                 if ($this->model->updateMetric($data)) {
-                    $this->sendJson(['success' => true, 'message' => 'Mesure mise à jour avec succès.']);
+                    $this->sendJson(['success' => true, 'message' => 'Mesure mise à jour.']);
                 } else {
                     $this->sendJson(['success' => false, 'message' => 'Erreur SQL lors de la mise à jour.']);
                 }
@@ -128,25 +99,27 @@ class MetricController
     {
         if (!isset($_SESSION['user_id'])) {
             header('Location: index.php?action=login');
-
             exit;
         }
+
         $id_user = $_SESSION['user_id'];
         $history = $this->model->getAllHistory($id_user);
 
         header('Content-Type: text/csv; charset=utf-8');
         header('Content-Disposition: attachment; filename=historique_metriques.csv');
         $output = fopen('php://output', 'w');
-        fputcsv($output, ['created_at', 'gender', 'height', 'weight', 'waist', 'neck', 'hip', 'activity_multiplier', 'is_athlete'], ';');
+
+        // EXPORT STRICT DES DONNÉES UTILISATEUR UNIQUEMENT (13 colonnes)
+        fputcsv($output, ['created_at', 'gender', 'age', 'height', 'weight', 'waist', 'neck', 'hip', 'wrist', 'calf', 'thigh', 'activity_multiplier', 'is_athlete'], ';');
 
         foreach ($history as $row) {
             fputcsv($output, [
-                $row['created_at'], $row['gender'], $row['height'], $row['weight'],
-                $row['waist'], $row['neck'], $row['hip'], $row['activity_multiplier'], $row['is_athlete'],
+                $row['created_at'], $row['gender'], $row['age'], $row['height'], $row['weight'],
+                $row['waist'], $row['neck'], $row['hip'], $row['wrist'], $row['calf'], $row['thigh'],
+                $row['activity_multiplier'], $row['is_athlete']
             ], ';');
         }
         fclose($output);
-
         exit;
     }
 
@@ -154,7 +127,6 @@ class MetricController
     {
         if (!isset($_SESSION['user_id'])) {
             header('Location: index.php?action=login');
-
             exit;
         }
 
@@ -163,72 +135,62 @@ class MetricController
             $id_user = $_SESSION['user_id'];
 
             if (!empty($file) && ($handle = fopen($file, 'r')) !== false) {
-                fgetcsv($handle, 1000, ';'); // Ignore header
+                fgetcsv($handle, 1000, ';'); // Ignore l'en-tête
 
                 while (($dataRow = fgetcsv($handle, 1000, ';')) !== false) {
-                    if (count($dataRow) < 9) {
+                    // On s'attend à 13 colonnes minimum selon le nouvel export
+                    if (count($dataRow) < 13) {
                         continue;
                     }
 
-                    $createdAt = $dataRow[0];
+                    $rawDate = trim($dataRow[0]);
+                    
+                    // On remplace les '/' par des '-' pour que strtotime() comprenne 
+                    // qu'il s'agit du format européen (JJ-MM-AAAA) et non américain
+                    $cleanDate = str_replace('/', '-', $rawDate);
+                    
+                    // On force le format strict attendu par MySQL
+                    $createdAt = date('Y-m-d H:i:s', strtotime($cleanDate));
+                    
                     $gender = $dataRow[1];
-                    $height = (float) $dataRow[2];
-                    $weight = (float) $dataRow[3];
-                    $waist = (float) $dataRow[4];
-                    $neck = (float) $dataRow[5];
-                    $hip = empty($dataRow[6]) ? null : (float) $dataRow[6];
-                    $activity = (float) $dataRow[7];
-                    $isAthlete = (int) $dataRow[8];
+                    $age = (int) $dataRow[2];
+                    $height = (float) $dataRow[3];
+                    $weight = (float) $dataRow[4];
+                    $waist = (float) $dataRow[5];
+                    $neck = (float) $dataRow[6];
+                    $hip = empty($dataRow[7]) ? 0 : (float) $dataRow[7];
+                    $wrist = empty($dataRow[8]) ? 0 : (float) $dataRow[8];
+                    $calf = empty($dataRow[9]) ? 0 : (float) $dataRow[9];
+                    $thigh = empty($dataRow[10]) ? 0 : (float) $dataRow[10];
+                    $activity = (float) $dataRow[11];
+                    $isAthlete = (int) $dataRow[12];
 
-                    if ($height <= 0 || $waist <= 0 || $neck <= 0) {
+                    if ($height <= 0 || $waist <= 0 || $age <= 0) {
                         continue;
                     }
 
-                    $diff = 'male' === $gender ? ($waist - $neck) : ($waist + $hip - $neck);
-                    if ($diff <= 0) {
-                        continue;
-                    }
-
-                    $lbmBoer = 'male' === $gender
-                        ? (0.407 * $weight) + (0.267 * $height) - 19.2
-                        : (0.252 * $weight) + (0.473 * $height) - 48.3;
-
-                    if ($isAthlete) {
-                        $lbmBoer *= ('male' === $gender ? 1.08 : 1.05);
-                    }
-
-                    $density = 'male' === $gender
-                        ? 1.0324 - 0.19077 * log10($diff) + 0.15456 * log10($height)
-                        : 1.29579 - 0.35004 * log10($diff) + 0.221 * log10($height);
-
-                    $bfNavy = max(0, (495 / $density) - 450);
-                    $lbmNavy = $weight * (1 - ($bfNavy / 100));
-
-                    $leanMass = ($lbmBoer + $lbmNavy) / 2;
-                    $minFatPercent = 'male' === $gender ? 3.0 : 10.0;
-                    $maxLbm = $weight * (1 - ($minFatPercent / 100));
-                    $leanMass = min($maxLbm, max($weight * 0.4, $leanMass));
-
-                    $fatMass = $weight - $leanMass;
-                    $bodyFat = ($fatMass / $weight) * 100;
-                    $bmr = 370 + (21.6 * $leanMass);
-                    $tdee = $bmr * $activity;
+                    // Recalcul instantané des métriques avec les données importées
+                    $metrics = $this->computeMetrics($gender, $age, $height, $weight, $waist, $hip, $wrist, $calf, $thigh, $isAthlete == 1, $activity);
 
                     $dataToInsert = [
                         ':id_user' => $id_user,
                         ':gender' => $gender,
+                        ':age' => $age,
                         ':height' => $height,
                         ':weight' => $weight,
                         ':neck' => $neck,
                         ':waist' => $waist,
-                        ':hip' => 'female' === $gender ? $hip : null,
+                        ':hip' => $hip,
+                        ':wrist' => $wrist,
+                        ':calf' => $calf,
+                        ':thigh' => $thigh,
                         ':activity' => $activity,
                         ':is_athlete' => $isAthlete ? 1 : 0,
-                        ':body_fat' => round($bodyFat, 2),
-                        ':fat_mass' => round($fatMass, 2),
-                        ':lean_mass' => round($leanMass, 2),
-                        ':bmr' => round($bmr),
-                        ':tdee' => round($tdee),
+                        ':body_fat' => $metrics['body_fat'],
+                        ':fat_mass' => $metrics['fat_mass'],
+                        ':lean_mass' => $metrics['lean_mass'],
+                        ':bmr' => $metrics['bmr'],
+                        ':tdee' => $metrics['tdee'],
                         ':created_at' => $createdAt,
                     ];
 
@@ -237,7 +199,6 @@ class MetricController
                 fclose($handle);
             }
             header('Location: index.php');
-
             exit;
         }
     }
@@ -250,19 +211,72 @@ class MetricController
             }
             $id = $_POST['id'] ?? null;
             $id_user = $_SESSION['user_id'];
+
             if ($id && $this->model->deleteMetric($id, $id_user)) {
-                $this->sendJson(['success' => true, 'message' => 'Mesure supprimée avec succès.']);
+                $this->sendJson(['success' => true, 'message' => 'Mesure supprimée.']);
             } else {
                 $this->sendJson(['success' => false, 'message' => 'Erreur lors de la suppression.']);
             }
         }
     }
 
+    private function computeMetrics($gender, $age, $height, $weight, $waist, $hip, $wrist, $calf, $thigh, $isAthlete, $activity)
+    {
+        // --- MODÈLE HYBRIDE CLINIQUE (CUN-BAE + RFM + BAILEY) ---
+        $imc = $weight / (($height / 100) ** 2);
+        
+        // 1. CUN-BAE
+        $sexCun = ($gender === 'male') ? 0 : 1;
+        $cunBae = -44.988 + (0.503 * $age) + (3.172 * $imc) - (0.026 * ($imc ** 2)) 
+                + (10.689 * $sexCun) + (0.028 * $age * $sexCun) - (0.02 * $imc * $age) 
+                + (0.00021 * ($imc ** 2) * $age) + (0.015 * ($imc ** 2) * $sexCun);
+
+        // 2. RFM
+        $rfmConstant = ($gender === 'male') ? 64 : 76;
+        $rfm = $rfmConstant - (20 * ($height / $waist));
+
+        // 3. Covert Bailey (Version métrique ajustée)
+        if ($gender === 'male') {
+            $covertBailey = ($waist + 0.5 * $hip) * 0.35 - ($wrist * 1.2) - ($calf * 0.2) - ($thigh * 0.2) - 3;
+        } else {
+            $covertBailey = ($hip + 0.8 * $thigh) * 0.35 - ($calf * 0.5) - ($wrist * 0.5) - 10;
+        }
+
+        // Moyenne pondérée (CUN-BAE et RFM sont cliniques, Bailey est anthropométrique)
+        if ($wrist > 0 && $calf > 0 && $thigh > 0 && $hip > 0) {
+            $bodyFat = ($cunBae * 0.4) + ($rfm * 0.4) + ($covertBailey * 0.2);
+        } else {
+            $bodyFat = ($cunBae + $rfm) / 2;
+        }
+
+        // Correction Athlète (Corrige le biais de l'IMC de CUN-BAE pour les musclés)
+        if ($isAthlete) {
+            $bodyFat *= ($gender === 'male' ? 0.85 : 0.90);
+        }
+
+        $minFatPercent = 'male' === $gender ? 4.0 : 12.0;
+        $bodyFat = max($minFatPercent, min($bodyFat, 60));
+
+        $fatMass = $weight * ($bodyFat / 100);
+        $leanMass = $weight - $fatMass;
+
+        // Katch-McArdle
+        $bmr = 370 + (21.6 * $leanMass);
+        $tdee = $bmr * $activity;
+
+        return [
+            'body_fat' => round($bodyFat, 2),
+            'fat_mass' => round($fatMass, 2),
+            'lean_mass' => round($leanMass, 2),
+            'bmr' => round($bmr),
+            'tdee' => round($tdee)
+        ];
+    }
+
     private function sendJson($data)
     {
         header('Content-Type: application/json');
         echo json_encode($data);
-
         exit;
     }
 }

@@ -6,15 +6,6 @@ const thresholds = {
 };
 
 document.addEventListener('DOMContentLoaded', () => {
-    const genderSelect = document.getElementById('gender');
-    const hipGroup = document.getElementById('hip-group');
-
-    // Gestion de l'affichage du champ "hanches"
-    genderSelect.addEventListener('change', (e) => {
-        hipGroup.classList.toggle('hidden', e.target.value !== 'female');
-        updateUI();
-    });
-
     // Gestion des Steppers (+ / -)
     document.querySelectorAll('.stepper button').forEach(btn => {
         btn.addEventListener('click', (e) => {
@@ -26,7 +17,6 @@ document.addEventListener('DOMContentLoaded', () => {
             if (e.target.classList.contains('minus')) val -= step;
             if (e.target.classList.contains('plus')) val += step;
             
-            // Évite les valeurs négatives
             if (val < 0) val = 0;
             
             input.value = val.toFixed(input.step.includes('.') ? 1 : 0);
@@ -37,6 +27,11 @@ document.addEventListener('DOMContentLoaded', () => {
     const inputs = document.querySelectorAll('input, select');
     inputs.forEach(input => input.addEventListener('input', updateUI));
     document.getElementById('training-type').addEventListener('change', updateUI);
+
+    const isAthleteElem = document.getElementById('is-athlete');
+    if (isAthleteElem) {
+        isAthleteElem.addEventListener('change', updateUI);
+    }
 
     // Sauvegarde AJAX silencieuse
     const form = document.getElementById('metric-form');
@@ -55,7 +50,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 const data = await response.json();
                 
                 if (data.success) {
-                    window.location.reload(); // Recharge pour afficher le nouveau point sur le graphe
+                    window.location.reload(); 
                 } else {
                     alert('Erreur: ' + data.message);
                 }
@@ -91,61 +86,53 @@ function updateZones(gender) {
     document.getElementById('zone-obe').style.width = ((max - t.moy) / max * 100) + '%';
 }
 
-// Ajoute cet écouteur avec les autres (vers la ligne 25)
-const isAthleteElem = document.getElementById('is-athlete');
-if (isAthleteElem) {
-    isAthleteElem.addEventListener('change', updateUI);
-}
-
 function updateUI() {
     const gender = document.getElementById('gender').value;
+    
+    const age = parseInt(document.getElementById('age').value, 10);
     const weight = parseFloat(document.getElementById('weight').value.replace(',', '.'));
     const height = parseFloat(document.getElementById('height').value.replace(',', '.'));
     const neck = parseFloat(document.getElementById('neck').value.replace(',', '.'));
     const waist = parseFloat(document.getElementById('waist').value.replace(',', '.'));
+    
     const hip = document.getElementById('hip') ? parseFloat(document.getElementById('hip').value.replace(',', '.')) : 0;
+    const wrist = document.getElementById('wrist') ? parseFloat(document.getElementById('wrist').value.replace(',', '.')) : 0;
+    const calf = document.getElementById('calf') ? parseFloat(document.getElementById('calf').value.replace(',', '.')) : 0;
+    const thigh = document.getElementById('thigh') ? parseFloat(document.getElementById('thigh').value.replace(',', '.')) : 0;
+
     const activity = parseFloat(document.getElementById('activity').value);
     const trainingType = document.getElementById('training-type').value;
-    
-    // NOUVEAU
     const isAthlete = document.getElementById('is-athlete') ? document.getElementById('is-athlete').checked : false;
 
-    // Mise à jour de l'appel
-    const metrics = calculateBodyMetrics(gender, height, weight, neck, waist, hip, activity, isAthlete);
+    const metrics = calculateBodyMetrics(gender, age, height, weight, neck, waist, hip, wrist, calf, thigh, activity, isAthlete);
     
     if (metrics) {
         updateZones(gender);
         const { bf, fatMass, leanMass, bmr, tdee, imc } = metrics;
         
-        // Mise à jour de la graisse corporelle
         document.getElementById('indicator-value').textContent = `${bf.toFixed(1)}%`;
         document.getElementById('summary-bf').textContent = `${bf.toFixed(1)}%`;
         document.getElementById('summary-cat').textContent = getCategory(bf, gender);
         document.getElementById('indicator').style.left = `${Math.min((bf / 45) * 100, 100)}%`;
         
-        // Mise à jour des masses
         document.getElementById('detail-fat').textContent = `${fatMass.toFixed(1)} kg`;
         document.getElementById('detail-lean').textContent = `${leanMass.toFixed(1)} kg`;
         
-        // Mise à jour de l'énergie
         document.getElementById('energy-bmr').textContent = `${Math.round(bmr)} kcal`;
         document.getElementById('energy-tdee').textContent = `${Math.round(tdee)} kcal`;
         
-        // Mise à jour de l'IMC
         const imcIndicatorValue = document.getElementById('imc-indicator-value');
         if (imcIndicatorValue) {
             imcIndicatorValue.textContent = imc.toFixed(1);
             document.getElementById('imc-indicator').style.left = `${Math.min((imc / 40) * 100, 100)}%`;
         }
 
-        // Mise à jour des Macros
         const macros = calculateMacros(tdee, weight, trainingType);
         document.getElementById('macro-protein').textContent = `${macros.protein}g`;
         document.getElementById('macro-carbs').textContent = `${macros.carbs}g`;
         document.getElementById('macro-fat').textContent = `${macros.fat}g`;
     }
 
-    // Gestion de la suppression d'une mesure
     document.querySelectorAll('.btn-delete').forEach(btn => {
         btn.addEventListener('click', async (e) => {
             if (confirm('Voulez-vous vraiment supprimer ce relevé ?')) {
@@ -154,7 +141,6 @@ function updateUI() {
                 try {
                     const formData = new FormData();
                     formData.append('id', id);
-
                     const response = await fetch('index.php?action=delete', {
                         method: 'POST',
                         body: formData,
@@ -164,7 +150,7 @@ function updateUI() {
                     const data = await response.json();
                     
                     if (data.success) {
-                        window.location.reload(); // Recharge pour actualiser le tableau et le graphique
+                        window.location.reload(); 
                     } else {
                         alert('Erreur: ' + data.message);
                     }
@@ -175,45 +161,37 @@ function updateUI() {
         });
     });
 
-    // Gestion de la modification d'une mesure
     document.querySelectorAll('.btn-edit').forEach(btn => {
         btn.addEventListener('click', (e) => {
             const target = e.currentTarget;
             
-            // 1. Remplissage des champs du formulaire
             document.getElementById('edit_id').value = target.dataset.id;
             document.getElementById('created_at').value = target.dataset.date;
             document.getElementById('gender').value = target.dataset.gender;
+            
+            document.getElementById('age').value = target.dataset.age || 25;
             document.getElementById('height').value = target.dataset.height;
             document.getElementById('weight').value = target.dataset.weight;
             document.getElementById('waist').value = target.dataset.waist;
             document.getElementById('neck').value = target.dataset.neck;
             
-            if (document.getElementById('hip')) {
-                document.getElementById('hip').value = target.dataset.hip || 0;
-            }
+            if (document.getElementById('hip')) document.getElementById('hip').value = target.dataset.hip || 95;
+            if (document.getElementById('wrist')) document.getElementById('wrist').value = target.dataset.wrist || 17;
+            if (document.getElementById('calf')) document.getElementById('calf').value = target.dataset.calf || 38;
+            if (document.getElementById('thigh')) document.getElementById('thigh').value = target.dataset.thigh || 55;
             
-            const rawActivity = target.dataset.activity;
-            document.getElementById('activity').value = parseFloat(rawActivity).toString();
+            document.getElementById('activity').value = parseFloat(target.dataset.activity).toString();
             
-            // NOUVEAU : Coche ou décoche le profil athlète
             const isAthleteCheckbox = document.getElementById('is-athlete');
             if (isAthleteCheckbox) {
                 isAthleteCheckbox.checked = target.dataset.athlete === '1';
             }
             
-            // Affichage de la zone "hanches" si c'est une femme
-            document.getElementById('hip-group').classList.toggle('hidden', target.dataset.gender !== 'female');
-            
-            // 2. Changement visuel du bouton pour indiquer le mode "Édition"
             const submitBtn = document.querySelector('.btn-save');
             submitBtn.textContent = 'Mettre à jour le relevé';
-            submitBtn.style.backgroundColor = '#f59e0b'; // Un orange pour marquer la modification
+            submitBtn.style.backgroundColor = '#f59e0b'; 
             
-            // 3. Remonter l'écran vers le formulaire
             window.scrollTo({ top: 0, behavior: 'smooth' });
-            
-            // 4. Forcer le recalcul instantané des graphiques et des macros avec les données chargées
             updateUI();
         });
     });
