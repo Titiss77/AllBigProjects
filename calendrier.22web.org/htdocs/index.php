@@ -1,6 +1,9 @@
 <?php
 declare(strict_types=1);
 
+// Force l'heure française pour tout le projet
+date_default_timezone_set('Europe/Paris');
+
 function loadEnv(string $path): void {
     if (!file_exists($path)) return;
     
