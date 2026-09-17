@@ -1,5 +1,4 @@
 <?php
-// On récupère le jour de la semaine actuel (1 = Lundi, 7 = Dimanche) et on le traduit
 $dayMap = [1 => 'Lundi', 2 => 'Mardi', 3 => 'Mercredi', 4 => 'Jeudi', 5 => 'Vendredi', 6 => 'Samedi', 7 => 'Dimanche'];
 $todayString =$dayMap[(int)date('N')];
 ?>
@@ -78,6 +77,7 @@ $todayString =$dayMap[(int)date('N')];
         overflow: hidden;
         line-height: 1.2;
         cursor: grab;
+        transition: opacity 0.2s;
     }
 
     .event-card:active {
@@ -99,11 +99,9 @@ $todayString =$dayMap[(int)date('N')];
         border-left: 1px solid #e5e5ea;
     }
 
-    /* --- LIGNE ROUGE DU JOUR ACTUEL --- */
     th.current-day,
     td.current-day {
         border-left: 2px solid #ff3b30 !important;
-        /* Force la couleur de la bordure gauche */
     }
 
     .controls-container {
@@ -392,7 +390,6 @@ $todayString =$dayMap[(int)date('N')];
             <tr>
                 <th class="time-col"></th>
                 <?php foreach ($days as$day): ?>
-                <!-- On ajoute la classe "current-day" si le jour correspond à aujourd'hui -->
                 <th class="<?= ($day ===$todayString) ? 'current-day' : '' ?>">
                     <?= htmlspecialchars($day, ENT_QUOTES, 'UTF-8') ?>
                 </th>
@@ -415,7 +412,6 @@ $todayString =$dayMap[(int)date('N')];
                         class="time-text"><?= htmlspecialchars($currentHour . ':00', ENT_QUOTES, 'UTF-8') ?></span></td>
 
                 <?php foreach ($days as$day): ?>
-                <!-- On fait de même pour toutes les cases de la colonne -->
                 <td data-day="<?= $day ?>" data-hour="<?= $currentHour ?>"
                     class="<?= ($day ===$todayString) ? 'current-day' : '' ?>">
                     <?php if (isset($events[$day][$hour])): ?>
@@ -429,7 +425,6 @@ $todayString =$dayMap[(int)date('N')];
                         style="height: <?= $duration ?>px; top: <?= $offset ?>px; border-left-color: <?= $color ?>; color: <?= $color ?>; background-color: <?= $color ?>26;"
                         title="<?= htmlspecialchars($evt['title'] . ' (' .$duration . ' min)', ENT_QUOTES, 'UTF-8') ?>">
                         <?= htmlspecialchars($evt['title'], ENT_QUOTES, 'UTF-8') ?>
-                        à
                         <?= htmlspecialchars($evt['start_time'], ENT_QUOTES, 'UTF-8') ?>
                     </div>
                     <?php if ($gap > 0): 
@@ -528,7 +523,6 @@ $todayString =$dayMap[(int)date('N')];
     <script>
     document.addEventListener('DOMContentLoaded', function() {
 
-        // --- 1. Modales et Complétion ---
         const toggle = document.getElementById('toggleAvailability');
         const table = document.getElementById('calendarTable');
 
@@ -552,123 +546,155 @@ $todayString =$dayMap[(int)date('N')];
             }
         });
 
-        // --- 2. DRAG AND DROP AVEC GESTION DES CRANS VISUELS ---
-        const cards = document.querySelectorAll('.event-card');
-        const cells = document.querySelectorAll('td[data-day]');
+        // --- ENCAPSULATION DU DRAG AND DROP POUR POUVOIR LE RELANCER ---
+        function initDragAndDrop() {
+            const cards = document.querySelectorAll('.event-card');
+            const cells = document.querySelectorAll('td[data-day]');
 
-        const placeholder = document.createElement('div');
-        placeholder.className = 'snap-placeholder';
+            let placeholder = document.querySelector('.snap-placeholder');
+            if (!placeholder) {
+                placeholder = document.createElement('div');
+                placeholder.className = 'snap-placeholder';
+            }
 
-        let dragOffsetY = 0;
-        let dragHeight = 60;
+            let dragOffsetY = 0;
+            let dragHeight = 60;
 
-        cards.forEach(card => {
-            card.addEventListener('dragstart', (e) => {
-                const rect = card.getBoundingClientRect();
-                dragOffsetY = e.clientY - rect.top;
-                dragHeight = parseInt(card.style.height) || 60;
+            cards.forEach(card => {
+                card.addEventListener('dragstart', (e) => {
+                    const rect = card.getBoundingClientRect();
+                    dragOffsetY = e.clientY - rect.top;
+                    dragHeight = parseInt(card.style.height) || 60;
 
-                e.dataTransfer.setData('text/plain', card.dataset.id);
-                e.dataTransfer.setData('offsetY', dragOffsetY);
+                    e.dataTransfer.setData('text/plain', card.dataset.id);
+                    e.dataTransfer.setData('offsetY', dragOffsetY);
 
-                placeholder.style.height = dragHeight + 'px';
-                setTimeout(() => card.classList.add('dragging'), 0);
-            });
-            card.addEventListener('dragend', () => {
-                card.classList.remove('dragging');
-                placeholder.style.display = 'none';
-                if (placeholder.parentNode) placeholder.parentNode.removeChild(placeholder);
-            });
-        });
-
-        cells.forEach(cell => {
-            cell.addEventListener('dragover', (e) => {
-                e.preventDefault();
-                cell.classList.add('drag-over');
-
-                if (placeholder.parentNode !== cell) {
-                    cell.appendChild(placeholder);
-                }
-                placeholder.style.display = 'block';
-
-                const baseHour = parseInt(cell.dataset.hour);
-                const rect = cell.getBoundingClientRect();
-                const y = (e.clientY - rect.top) - dragOffsetY;
-
-                let totalMinutes = (baseHour * 60) + Math.floor(y);
-                let newHour = Math.floor(totalMinutes / 60);
-                let newMinutes = totalMinutes % 60;
-
-                newMinutes = Math.round(newMinutes / 15) * 15;
-                if (newMinutes === 60) {
-                    newHour += 1;
-                    newMinutes = 0;
-                }
-
-                let displayTop = ((newHour - baseHour) * 60) + newMinutes;
-                placeholder.style.top = displayTop + 'px';
+                    placeholder.style.height = dragHeight + 'px';
+                    setTimeout(() => card.classList.add('dragging'), 0);
+                });
+                card.addEventListener('dragend', () => {
+                    card.classList.remove('dragging');
+                    placeholder.style.display = 'none';
+                    if (placeholder.parentNode) placeholder.parentNode.removeChild(placeholder);
+                });
             });
 
-            cell.addEventListener('dragleave', (e) => {
-                if (!cell.contains(e.relatedTarget)) {
+            cells.forEach(cell => {
+                cell.addEventListener('dragover', (e) => {
+                    e.preventDefault();
+                    cell.classList.add('drag-over');
+
+                    if (placeholder.parentNode !== cell) {
+                        cell.appendChild(placeholder);
+                    }
+                    placeholder.style.display = 'block';
+
+                    const baseHour = parseInt(cell.dataset.hour);
+                    const rect = cell.getBoundingClientRect();
+                    const y = (e.clientY - rect.top) - dragOffsetY;
+
+                    let totalMinutes = (baseHour * 60) + Math.floor(y);
+                    let newHour = Math.floor(totalMinutes / 60);
+                    let newMinutes = totalMinutes % 60;
+
+                    newMinutes = Math.round(newMinutes / 15) * 15;
+                    if (newMinutes === 60) {
+                        newHour += 1;
+                        newMinutes = 0;
+                    }
+
+                    let displayTop = ((newHour - baseHour) * 60) + newMinutes;
+                    placeholder.style.top = displayTop + 'px';
+                });
+
+                cell.addEventListener('dragleave', (e) => {
+                    if (!cell.contains(e.relatedTarget)) {
+                        cell.classList.remove('drag-over');
+                    }
+                });
+
+                cell.addEventListener('drop', (e) => {
+                    e.preventDefault();
                     cell.classList.remove('drag-over');
-                }
+
+                    const targetCell = e.target.closest('td[data-day]');
+                    if (!targetCell) return;
+
+                    const eventId = e.dataTransfer.getData('text/plain');
+                    const offsetY = parseFloat(e.dataTransfer.getData('offsetY')) || 0;
+
+                    const targetDay = targetCell.dataset.day;
+                    const baseHour = parseInt(targetCell.dataset.hour);
+
+                    const rect = targetCell.getBoundingClientRect();
+                    const y = (e.clientY - rect.top) - offsetY;
+
+                    let totalMinutes = (baseHour * 60) + Math.floor(y);
+                    let newHour = Math.floor(totalMinutes / 60);
+                    let newMinutes = totalMinutes % 60;
+
+                    newMinutes = Math.round(newMinutes / 15) * 15;
+                    if (newMinutes === 60) {
+                        newHour += 1;
+                        newMinutes = 0;
+                    }
+
+                    if (newHour < 0) newHour = 0;
+                    if (newHour > 23) newHour = 23;
+
+                    const hourStr = String(newHour).padStart(2, '0');
+                    const minStr = String(newMinutes).padStart(2, '0');
+                    const newTime = `${hourStr}:${minStr}`;
+
+                    // Masque la carte déplacée pour faire "plus propre" pendant la courte requête
+                    const draggedCard = document.querySelector(
+                        `.event-card[data-id="${eventId}"]`);
+                    if (draggedCard) draggedCard.style.opacity = '0.3';
+
+                    const formData = new FormData();
+                    formData.append('action', 'move');
+                    formData.append('id', eventId);
+                    formData.append('day', targetDay);
+                    formData.append('time', newTime);
+
+                    fetch('', {
+                            method: 'POST',
+                            body: formData
+                        })
+                        .then(response => response.json())
+                        .then(data => {
+                            if (data.success) {
+                                // C'EST ICI QUE TOUT CHANGE : On récupère silencieusement le tableau en arrière plan
+                                fetch(window.location.href)
+                                    .then(res => res.text())
+                                    .then(html => {
+                                        const parser = new DOMParser();
+                                        const doc = parser.parseFromString(html,
+                                            'text/html');
+
+                                        // On remplace uniquement l'intérieur du tableau, sans recharger la page
+                                        document.querySelector('#calendarTable tbody')
+                                            .innerHTML = doc.querySelector(
+                                                '#calendarTable tbody').innerHTML;
+
+                                        // On relance la fonction pour attacher les événements de déplacement aux nouvelles cartes
+                                        initDragAndDrop();
+                                    });
+                            } else {
+                                alert("Erreur lors du déplacement : " + data.error);
+                                if (draggedCard) draggedCard.style.opacity = '1';
+                            }
+                        })
+                        .catch(err => {
+                            alert("Erreur réseau : " + err);
+                            if (draggedCard) draggedCard.style.opacity = '1';
+                        });
+                });
             });
+        }
 
-            cell.addEventListener('drop', (e) => {
-                e.preventDefault();
-                cell.classList.remove('drag-over');
-
-                const targetCell = e.target.closest('td[data-day]');
-                if (!targetCell) return;
-
-                const eventId = e.dataTransfer.getData('text/plain');
-                const offsetY = parseFloat(e.dataTransfer.getData('offsetY')) || 0;
-
-                const targetDay = targetCell.dataset.day;
-                const baseHour = parseInt(targetCell.dataset.hour);
-
-                const rect = targetCell.getBoundingClientRect();
-                const y = (e.clientY - rect.top) - offsetY;
-
-                let totalMinutes = (baseHour * 60) + Math.floor(y);
-                let newHour = Math.floor(totalMinutes / 60);
-                let newMinutes = totalMinutes % 60;
-
-                newMinutes = Math.round(newMinutes / 15) * 15;
-                if (newMinutes === 60) {
-                    newHour += 1;
-                    newMinutes = 0;
-                }
-
-                if (newHour < 0) newHour = 0;
-                if (newHour > 23) newHour = 23;
-
-                const hourStr = String(newHour).padStart(2, '0');
-                const minStr = String(newMinutes).padStart(2, '0');
-                const newTime = `${hourStr}:${minStr}`;
-
-                const formData = new FormData();
-                formData.append('action', 'move');
-                formData.append('id', eventId);
-                formData.append('day', targetDay);
-                formData.append('time', newTime);
-
-                fetch('', {
-                        method: 'POST',
-                        body: formData
-                    })
-                    .then(response => response.json())
-                    .then(data => {
-                        if (data.success) {
-                            window.location.reload();
-                        } else {
-                            alert("Erreur lors du déplacement : " + data.error);
-                        }
-                    })
-                    .catch(err => alert("Erreur réseau : " + err));
-            });
-        });
+        // On lance le Drag and Drop une première fois au chargement
+        initDragAndDrop();
     });
     </script>
 </body>
