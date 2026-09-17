@@ -39,17 +39,10 @@
     },
     {
         "day": "Jeudi",
-        "time": "10:00",
+        "time": "14:00",
         "title": "Salle de sport",
         "duration": 90,
         "color": "#ff9500"
-    },
-    {
-        "day": "Jeudi",
-        "time": "16:00",
-        "title": "Natation ???",
-        "duration": 90,
-        "color": "#007aff"
     },
     {
         "day": "Vendredi",
