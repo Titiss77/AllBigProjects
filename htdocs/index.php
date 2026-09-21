@@ -34,7 +34,7 @@ if (is_dir($dossierParent)) {
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Routes</title>
+    <title>Routestest</title>
     <style>
     /* Un petit peu de style pour rendre la liste plus propre */
     body {
