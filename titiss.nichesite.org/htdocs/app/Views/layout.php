@@ -38,32 +38,6 @@
     }
     </script>
 
-    <script>
-    // Évite le flash de la bannière cookies lors du chargement/changement de page.
-    (function() {
-        try {
-            if (localStorage.getItem('cookies_accepted') !== 'true') {
-                document.documentElement.classList.add('show-cookie-banner');
-            }
-        } catch (e) {
-            // Si localStorage est indisponible, on laisse le JavaScript
-            // afficher normalement la bannière.
-        }
-    })();
-    </script>
-
-    <style>
-    /* La bannière reste cachée par défaut pendant le chargement. */
-    #cookie-banner {
-        display: none !important;
-    }
-
-    /* Affichage uniquement si aucun consentement n'a été enregistré. */
-    html.show-cookie-banner #cookie-banner {
-        display: flex !important;
-    }
-    </style>
-
     <?php
     $rootCssVersion = file_exists(FCPATH.'assets/root.css') ? filemtime(FCPATH.'assets/root.css') : '1';
     $styleCssVersion = file_exists(FCPATH.'assets/style.css') ? filemtime(FCPATH.'assets/style.css') : '1';
@@ -237,42 +211,15 @@
             <?php echo json_encode(session()->getFlashdata('message')); ?>, "info");
         <?php } ?>
 
-            /* Cookie Banner Logic */
-            (function() {
-                const cookieBanner = document.getElementById('cookie-banner');
-                const acceptCookies = document.getElementById('accept-cookies');
+        /* Cookie Banner Logic */
+        if (!localStorage.getItem('cookies_accepted')) {
+            document.getElementById('cookie-banner').style.display = 'flex';
+        }
 
-                if (!cookieBanner || !acceptCookies) {
-                    return;
-                }
-
-                let cookiesAccepted = false;
-
-                try {
-                    cookiesAccepted = localStorage.getItem('cookies_accepted') === 'true';
-                } catch (e) {
-                    cookiesAccepted = false;
-                }
-
-                if (cookiesAccepted) {
-                    document.documentElement.classList.remove('show-cookie-banner');
-                    cookieBanner.style.display = 'none';
-                    return;
-                }
-
-                document.documentElement.classList.add('show-cookie-banner');
-
-                acceptCookies.addEventListener('click', function() {
-                    try {
-                        localStorage.setItem('cookies_accepted', 'true');
-                    } catch (e) {
-                        // Le navigateur bloque éventuellement localStorage.
-                    }
-
-                    document.documentElement.classList.remove('show-cookie-banner');
-                    cookieBanner.style.display = 'none';
-                });
-            })();
+        document.getElementById('accept-cookies').addEventListener('click', function() {
+            localStorage.setItem('cookies_accepted', 'true');
+            document.getElementById('cookie-banner').style.display = 'none';
+        });
     });
     </script>
 </body>
