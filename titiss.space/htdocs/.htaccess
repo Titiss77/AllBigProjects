@@ -1,19 +1,15 @@
-# Bloquer l'accès aux fichiers de configuration et sensibles
+# Bloquer l'accès aux fichiers sensibles
 <FilesMatch "^\.env|\.sql$">
     Require all denied
 </FilesMatch>
 
-<IfModule mod_rewrite.h>
+<IfModule mod_rewrite.c>
     Options +FollowSymlinks
     RewriteEngine On
 
-    # Redirection HTTPS propre gérée par le serveur ou le .htaccess
+    # Redirection HTTPS propre
     RewriteCond %{HTTPS} off
     RewriteRule ^(.*)$ https://%{HTTP_HOST}%{REQUEST_URI} [L,R=301]
-
-    # Redirection vers le dossier public si ce n'est pas déjà fait
-    RewriteCond %{REQUEST_URI} !^/public/ [NC]
-    RewriteRule ^([\s\S]*)$ public/$1 [L]
 </IfModule>
 
 # Options de performance (GZIP et Cache)
