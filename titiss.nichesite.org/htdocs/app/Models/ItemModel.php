@@ -108,8 +108,8 @@ class ItemModel extends Model
         return $this->where('id_division <', 11)
             ->where('is_public', 1)
             ->where('id_user !=', 1)
-            ->findAll()
-        ;
+            ->orderBy('created_at', 'DESC')
+            ->findAll();
     }
 
     public function getDeletedItems($userId = null)
