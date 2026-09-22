@@ -13,6 +13,17 @@
     RewriteRule ^(.*)$ public/$1 [L]
 </IfModule>
 
+<IfModule mod_rewrite.c>
+    Options +FollowSymlinks
+    RewriteEngine On
+    
+    # Ignorer si la requête vise déjà le dossier public
+    RewriteCond %{REQUEST_URI} !^/public/ [NC]
+    
+    # Rediriger tout vers public/ si ce n'est pas déjà fait
+    RewriteRule ^([\s\S]*)$ public/$1 [L]
+</IfModule>
+
 # ----------------------------------------------------------------------
 # Compression GZIP
 # ----------------------------------------------------------------------
