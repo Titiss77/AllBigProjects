@@ -195,6 +195,22 @@
             style="padding: 8px 16px; white-space: nowrap;">Compris</button>
     </div>
 
+    <!-- Script de gestion des cookies exécuté immédiatement -->
+    <script>
+    (function() {
+        var banner = document.getElementById('cookie-banner');
+        if (!localStorage.getItem('cookies_accepted')) {
+            banner.style.display = 'flex';
+        }
+
+        document.getElementById('accept-cookies').addEventListener('click', function() {
+            localStorage.setItem('cookies_accepted', 'true');
+            banner.style.display = 'none';
+        });
+    })();
+    </script>
+
+    <!-- Script des notifications conservé dans le DOMContentLoaded -->
     <script>
     document.addEventListener("DOMContentLoaded", function() {
         /* Toasts System */
@@ -210,16 +226,6 @@
         if (typeof showToast === 'function') showToast(
             <?php echo json_encode(session()->getFlashdata('message')); ?>, "info");
         <?php } ?>
-
-        /* Cookie Banner Logic */
-        if (!localStorage.getItem('cookies_accepted')) {
-            document.getElementById('cookie-banner').style.display = 'flex';
-        }
-
-        document.getElementById('accept-cookies').addEventListener('click', function() {
-            localStorage.setItem('cookies_accepted', 'true');
-            document.getElementById('cookie-banner').style.display = 'none';
-        });
     });
     </script>
 </body>
