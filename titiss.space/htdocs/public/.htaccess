@@ -8,12 +8,12 @@ Options -Indexes
     Options +FollowSymlinks
     RewriteEngine On
 
-    # Retire le slash final s'il y en a un
+    # Retire le slash final
     RewriteCond %{REQUEST_FILENAME} !-d
     RewriteCond %{REQUEST_URI} (.+)/$
     RewriteRule ^ %1 [L,R=301]
 
-    # Redirige toutes les requêtes vers index.php (Standard CI4)
+    # Redirige toutes les requêtes vers index.php
     RewriteCond %{REQUEST_FILENAME} !-f
     RewriteCond %{REQUEST_FILENAME} !-d
     RewriteRule ^([\s\S]*)$ index.php/$1 [L,NC,QSA]
