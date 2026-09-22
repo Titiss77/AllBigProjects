@@ -11,6 +11,5 @@
     RewriteRule ^(.*)$ https://%{HTTP_HOST}%{REQUEST_URI} [L,R=301]
 
     # Redirection invisible vers le dossier public de CodeIgniter
-    RewriteCond %{REQUEST_URI} !^/public/
-    RewriteRule ^(.*)$ $1 [L,NC]
+    RewriteRule ^(.*)$ public/$1 [L,NC]
 </IfModule>
