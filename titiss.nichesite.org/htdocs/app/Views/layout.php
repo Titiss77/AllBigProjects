@@ -183,28 +183,30 @@
         </div>
     </footer>
 
-    <!-- Bannière de Cookies -->
-    <div id="cookie-banner"
+    <!-- Bannière de consentement (Identifiants modifiés pour éviter les bloqueurs de pubs) -->
+    <div id="site-consent-box"
         style="display: none; position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); background: var(--bg-card); border: 1px solid var(--border-color); padding: 15px 25px; border-radius: var(--radius-md); box-shadow: var(--shadow-lg); z-index: 9999; flex-direction: row; align-items: center; gap: 20px; width: 90%; max-width: 600px;">
         <p style="margin: 0; font-size: 0.9rem; color: var(--text-main);">
             Nous utilisons des cookies techniques strictement nécessaires au fonctionnement du site. En continuant, vous
             acceptez leur utilisation. <a href="<?php echo base_url('privacy'); ?>" style="color: var(--primary);">En
                 savoir plus</a>.
         </p>
-        <button id="accept-cookies" class="btn btn-primary"
+        <button id="btn-understand-consent" class="btn btn-primary"
             style="padding: 8px 16px; white-space: nowrap;">Compris</button>
     </div>
 
-    <!-- Script de gestion des cookies exécuté immédiatement -->
+    <!-- Script de gestion exécuté immédiatement -->
     <script>
     (function() {
-        var banner = document.getElementById('cookie-banner');
-        if (!localStorage.getItem('cookies_accepted')) {
+        var banner = document.getElementById('site-consent-box');
+        var btn = document.getElementById('btn-understand-consent');
+
+        if (!localStorage.getItem('site_consent_ok')) {
             banner.style.display = 'flex';
         }
 
-        document.getElementById('accept-cookies').addEventListener('click', function() {
-            localStorage.setItem('cookies_accepted', 'true');
+        btn.addEventListener('click', function() {
+            localStorage.setItem('site_consent_ok', 'true');
             banner.style.display = 'none';
         });
     })();
