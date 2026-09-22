@@ -12,5 +12,5 @@
 
     # Redirection invisible vers le dossier public de CodeIgniter
     RewriteCond %{REQUEST_URI} !^/public/
-    RewriteRule ^(.*)$ public/$1 [L,NC]
+    RewriteRule ^(.*)$ $1 [L,NC]
 </IfModule>
