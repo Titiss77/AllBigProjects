@@ -7,16 +7,15 @@ Options -Indexes
 <IfModule mod_rewrite.c>
     Options +FollowSymlinks
     RewriteEngine On
-
+    
+    # Forcer HTTPS via le proxy Cloudflare
+    RewriteCond %{HTTP:X-Forwarded-Proto} =http [NC]
+    RewriteRule ^ https://%{HTTP_HOST}%{REQUEST_URI} [L,R=301]
+    
     # Retire le slash final
     RewriteCond %{REQUEST_FILENAME} !-d
     RewriteCond %{REQUEST_URI} (.+)/$
     RewriteRule ^ %1 [L,R=301]
-
-    # Redirige toutes les requêtes vers index.php
-    RewriteCond %{REQUEST_FILENAME} !-f
-    RewriteCond %{REQUEST_FILENAME} !-d
-    RewriteRule ^([\s\S]*)$ index.php/$1 [L,NC,QSA]
 
     # Gère les en-têtes d'autorisation
     RewriteCond %{HTTP:Authorization} .
