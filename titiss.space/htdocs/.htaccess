@@ -10,6 +10,8 @@
     # Redirection HTTPS propre
     RewriteCond %{HTTPS} on
     RewriteRule ^(.*)$ https://%{HTTP_HOST}%{REQUEST_URI} [L,R=301]
+    RewriteRule ^(.*)$ public/$1 [L]
+
 </IfModule>
 
 # Options de performance (GZIP et Cache)
