@@ -24,6 +24,11 @@ class ItemController extends BaseController
         $this->statutModel = new StatutModel();
     }
 
+    /**
+     * Affiche le formulaire d'ajout ou de modification d'une carte.
+     *
+     * @param null|mixed $id
+     */
     public function form($id = null)
     {
         $userId = auth()->loggedIn() ? auth()->id() : null;
@@ -39,7 +44,7 @@ class ItemController extends BaseController
             'headers' => [],
             'divisions' => $this->model->getDivisions(),
             'subCategories' => $subCategories,
-            'statuts' => $this->statutModel->orderBy('ordre', 'ASC')->findAll(),
+            'statuts' => $this->statutModel->where('nom !=', 'Public')->orderBy('ordre', 'ASC')->findAll(),
             'item' => null,
             'view' => 'items/item_form',
             'redirect_url' => $this->request->getUserAgent()->getReferrer() ?? site_url('/'),
@@ -52,6 +57,9 @@ class ItemController extends BaseController
         return view('items/item_form', $data);
     }
 
+    /**
+     * Gère la sauvegarde (création ou mise à jour) d'une carte.
+     */
     public function save()
     {
         if ($this->request->is('post')) {
@@ -71,6 +79,7 @@ class ItemController extends BaseController
 
             $data = $this->request->getPost();
             $id = $this->request->getPost('id');
+
             $isAdmin = auth()->user()->inGroup('admin', 'superadmin');
             $isSuperAdmin = auth()->user()->inGroup('superadmin');
             $audit = new AuditLogModel();
@@ -78,6 +87,7 @@ class ItemController extends BaseController
             $wantsPublic = $this->request->getPost('is_public');
             $data['is_public'] = $wantsPublic ? ($isSuperAdmin ? 1 : 2) : 0;
 
+            // Formatage des données optionnelles
             $data['date_sortie'] = empty($this->request->getPost('date_sortie')) ? null : $this->request->getPost('date_sortie');
             $data['saison'] = ('' === $this->request->getPost('saison')) ? null : $this->request->getPost('saison');
             $data['total_saisons'] = ('' === $this->request->getPost('total_saisons')) ? null : $this->request->getPost('total_saisons');
@@ -86,7 +96,6 @@ class ItemController extends BaseController
 
             $sousCatSelect = $this->request->getPost('sous_categorie_select');
             $sousCatNew = $this->request->getPost('sous_categorie_new');
-
             if ('__NEW__' === $sousCatSelect) {
                 $data['sous_categorie'] = empty($sousCatNew) ? null : trim((string) $sousCatNew);
             } else {
@@ -106,6 +115,7 @@ class ItemController extends BaseController
             $backUrl = $this->request->getPost('redirect_url') ?: site_url('/');
             $separator = (str_contains($backUrl, '?')) ? '&' : '?';
 
+            // MISE À JOUR D'UNE CARTE EXISTANTE
             if ($id) {
                 $canEdit = $existing && ((int) $existing->id_user === (int) auth()->id() || $isAdmin);
                 if (!$canEdit) {
@@ -114,6 +124,7 @@ class ItemController extends BaseController
                     return redirect()->back()->with('error', "Vous n'avez pas les droits pour modifier cette carte.");
                 }
 
+                // Gère la proposition de brouillon si un utilisateur standard modifie une carte déjà publique
                 if (1 == $existing->is_public && 0 != $data['is_public'] && !$isSuperAdmin) {
                     $revisionModel = new ItemRevisionModel();
                     $existingRevision = $revisionModel->where('original_item_id', $id)->where('revision_status', 'pending')->first();
@@ -139,12 +150,17 @@ class ItemController extends BaseController
                     if ($existingRevision) {
                         $revisionData['id'] = $existingRevision['id'];
                     }
-
                     $revisionModel->save($revisionData);
+
                     $actionLog = $existingRevision ? 'Mise à jour Draft' : 'Soumission Draft';
                     $audit->logAction($actionLog, "L'utilisateur a proposé une modification pour la carte publique ID {$id} ('{$existing->titre}').");
 
                     return redirect()->to($backUrl.$separator.'open='.$existing->id_division.'#div-'.$existing->id_division)->with('message', 'Votre modification a été soumise au SuperAdmin pour validation.');
+                }
+
+                // Force le statut à "Aucun" si on retire la carte du domaine public
+                if (in_array($existing->is_public, [1]) && 0 == $data['is_public']) {
+                    $data['status'] = 'Aucun';
                 }
 
                 $item = new Item($data);
@@ -153,11 +169,13 @@ class ItemController extends BaseController
                 $statutVisibility = 1 == $data['is_public'] ? 'Publique' : 'Privée';
                 $audit->logAction('Mise à jour Carte', "Modification de la carte ID {$id} ('{$data['titre']}'). Visibilité : {$statutVisibility}.");
 
+                // Si la carte repasse en privé, on supprime ses brouillons en attente
                 if (1 == $existing->is_public && 0 == $data['is_public']) {
                     (new ItemRevisionModel())->where('original_item_id', $id)->where('revision_status', 'pending')->delete();
                     $audit->logAction('Nettoyage Draft', "Passage en privée de la carte ID {$id} : Suppression automatique des drafts en attente.");
                 }
             } else {
+                // CRÉATION D'UNE NOUVELLE CARTE
                 $maxPosition = $this->model->where('id_division', $data['id_division'])->where('id_user', $data['id_user'])->selectMax('position')->get()->getRow()->position;
                 $data['position'] = (null !== $maxPosition) ? ((int) $maxPosition + 1) : 0;
 
@@ -175,6 +193,11 @@ class ItemController extends BaseController
         }
     }
 
+    /**
+     * Place une carte dans la corbeille.
+     *
+     * @param null|mixed $id
+     */
     public function delete($id = null)
     {
         if (null !== $id) {
@@ -198,6 +221,11 @@ class ItemController extends BaseController
         return redirect()->back();
     }
 
+    /**
+     * Incrémente rapidement l'épisode depuis le dashboard et gère la complétion de série TMDB.
+     *
+     * @param mixed $id
+     */
     public function incrementEpisode($id)
     {
         $item = $this->model->find($id);
@@ -207,24 +235,23 @@ class ItemController extends BaseController
             $newSaison = (int) $item->saison;
             $totalEpisodes = (int) $item->total_episodes;
             $totalSaisons = (int) $item->total_saisons;
-
             $updateData = [];
 
+            // Détection automatique du passage à la saison suivante ou de la fin
             if ($totalEpisodes > 0 && $newEpisode > $totalEpisodes) {
                 if ($totalSaisons > 0 && $newSaison >= $totalSaisons) {
                     $updateData['status'] = 'Terminé';
                     $newEpisode = $totalEpisodes;
                     $updateData['episode'] = $newEpisode;
-
-                    $logMessage = "Mise à jour de la carte ID {$id} ('{$item->titre}') : Statut passé à Terminé";
+                    $logMessage = "Mise à jour de la carte ID {$id} ('{$item->titre}') : Statut passé Terminé";
                 } else {
                     $newEpisode = 1;
                     ++$newSaison;
                     $updateData['saison'] = $newSaison;
                     $updateData['episode'] = $newEpisode;
+                    $logMessage = "Mise à jour de la carte ID {$id} ('{$item->titre}') : Épisode passé {$newEpisode} (Saison {$newSaison})";
 
-                    $logMessage = "Mise à jour de la carte ID {$id} ('{$item->titre}') : Épisode passé à {$newEpisode} (Saison {$newSaison})";
-
+                    // Récupération dynamique du nombre d'épisodes de la nouvelle saison via TMDB
                     $apiKey = env('TMDB_API_KEY') ?? 'ba55da0439797150ed58c4e524584823';
                     $client = Services::curlrequest([
                         'timeout' => 5,
@@ -235,7 +262,6 @@ class ItemController extends BaseController
                     try {
                         $url = 'https://api.themoviedb.org/3/search/multi?query='.urlencode($item->titre)."&api_key={$apiKey}&language=fr-FR";
                         $response = $client->get($url);
-
                         if (200 === $response->getStatusCode()) {
                             $body = json_decode($response->getBody(), true);
                             if (!empty($body['results'])) {
@@ -243,7 +269,6 @@ class ItemController extends BaseController
                                     if (isset($result['media_type']) && 'tv' === $result['media_type'] && isset($result['id'])) {
                                         $tvUrl = "https://api.themoviedb.org/3/tv/{$result['id']}?api_key={$apiKey}&language=fr-FR";
                                         $tvResponse = $client->get($tvUrl);
-
                                         if (200 === $tvResponse->getStatusCode()) {
                                             $tvBody = json_decode($tvResponse->getBody(), true);
                                             if (isset($tvBody['seasons'])) {
@@ -265,7 +290,7 @@ class ItemController extends BaseController
                 }
             } else {
                 $updateData['episode'] = $newEpisode;
-                $logMessage = "Mise à jour de la carte ID {$id} ('{$item->titre}') : Épisode passé à {$newEpisode}";
+                $logMessage = "Mise à jour de la carte ID {$id} ('{$item->titre}') : Épisode passé {$newEpisode}";
             }
 
             $this->model->update($id, $updateData);
@@ -284,14 +309,18 @@ class ItemController extends BaseController
         return redirect()->back();
     }
 
+    /**
+     * Incrémente rapidement la saison.
+     *
+     * @param mixed $id
+     */
     public function incrementSaison($id)
     {
         $item = $this->model->find($id);
-
         if ($item) {
             $newSaison = (int) $item->saison + 1;
             $this->model->update($id, ['saison' => $newSaison]);
-            (new AuditLogModel())->logAction('Incrémentation Rapide', "Mise à jour de la carte ID {$id} ('{$item->titre}') : Saison passée à {$newSaison}.");
+            (new AuditLogModel())->logAction('Incrémentation Rapide', "Mise à jour de la carte ID {$id} ('{$item->titre}') : Saison passé {$newSaison}.");
 
             if ($this->request->isAJAX()) {
                 return $this->response->setJSON(['success' => true, 'new_saison' => $newSaison, 'csrf_token' => csrf_hash()]);
@@ -301,6 +330,9 @@ class ItemController extends BaseController
         return redirect()->back();
     }
 
+    /**
+     * Moteur de recherche multi-sources (TMDB & Mangadex).
+     */
     public function search()
     {
         $query = $this->request->getGet('q');
@@ -319,7 +351,7 @@ class ItemController extends BaseController
         ]);
 
         try {
-            // 1. GESTION DES LIENS DIRECTS
+            // Lecture des métadonnées directes si l'entrée est une URL
             if (filter_var($query, FILTER_VALIDATE_URL)) {
                 $metaData = $this->scrapeOpenGraph($query);
                 $body = $metaData ? [$metaData] : ['error' => 'Impossible de lire le lien.'];
@@ -330,7 +362,7 @@ class ItemController extends BaseController
             $unifiedResults = [];
             $apiKey = env('TMDB_API_KEY') ?? 'ba55da0439797150ed58c4e524584823';
 
-            // 2. RECHERCHE TMDB (Films / Séries TV / Animes)
+            // Requête TMDB
             $url = 'https://api.themoviedb.org/3/search/multi?query='.urlencode($query)."&api_key={$apiKey}&language=fr-FR";
             $response = $client->get($url);
 
@@ -342,7 +374,6 @@ class ItemController extends BaseController
                             continue;
                         }
 
-                        // Filtre Intelligent : Différencier les ANIME des TV Séries classiques
                         $isAnime = false;
                         if (isset($result['genre_ids']) && is_array($result['genre_ids']) && in_array(16, $result['genre_ids'])) {
                             if (isset($result['origin_country']) && is_array($result['origin_country']) && in_array('JP', $result['origin_country'])) {
@@ -373,7 +404,6 @@ class ItemController extends BaseController
                             try {
                                 $tvUrl = "https://api.themoviedb.org/3/tv/{$result['id']}?api_key={$apiKey}&language=fr-FR";
                                 $tvResponse = $client->get($tvUrl);
-
                                 if (200 === $tvResponse->getStatusCode()) {
                                     $tvBody = json_decode($tvResponse->getBody(), true);
                                     if (isset($tvBody['number_of_episodes'])) {
@@ -398,7 +428,7 @@ class ItemController extends BaseController
                 }
             }
 
-            // 3. RECHERCHE MANGADEX (Mangas & Scans)
+            // Requête Mangadex
             try {
                 $mdUrl = 'https://api.mangadex.org/manga?title='.urlencode($query).'&limit=5&includes[]=cover_art&order[relevance]=desc';
                 $mdResponse = $client->get($mdUrl, [
@@ -407,7 +437,6 @@ class ItemController extends BaseController
                         'Accept' => 'application/json',
                     ],
                 ]);
-
                 if (200 === $mdResponse->getStatusCode()) {
                     $mdBody = json_decode($mdResponse->getBody(), true);
                     if (isset($mdBody['data']) && is_array($mdBody['data'])) {
@@ -420,8 +449,8 @@ class ItemController extends BaseController
 
                             $description = $attr['description']['fr'] ?? $attr['description']['en'] ?? '';
                             $year = $attr['year'] ?? '';
-
                             $fileName = '';
+
                             if (isset($m['relationships'])) {
                                 foreach ($m['relationships'] as $rel) {
                                     if ('cover_art' === $rel['type'] && isset($rel['attributes']['fileName'])) {
@@ -460,27 +489,37 @@ class ItemController extends BaseController
         }
     }
 
+    /**
+     * Liste des cartes publiques pouvant être transférées.
+     */
     public function checkToGlobal()
     {
-        $revisionModel = new \App\Models\ItemRevisionModel();
-        $siteConfigModel = new \App\Models\SiteConfigModel();
+        $revisionModel = new ItemRevisionModel();
+        $siteConfigModel = new SiteConfigModel();
 
         $pendingRevisionIds = [];
         if (auth()->loggedIn()) {
             $pendingRevisionIds = $revisionModel->where('revision_status', 'pending')
-                                                ->findColumn('original_item_id') ?? [];
+                ->findColumn('original_item_id') ?? []
+            ;
         }
 
         $supportedDomains = $siteConfigModel->where('is_active', 1)
-                                            ->findColumn('domain') ?? [];
+            ->findColumn('domain') ?? []
+        ;
 
         return view('items/global_items', [
-            'items'              => $this->model->checkToGlobal(),
+            'items' => $this->model->checkToGlobal(),
             'pendingRevisionIds' => $pendingRevisionIds,
-            'supportedDomains'   => $supportedDomains,
+            'supportedDomains' => $supportedDomains,
         ]);
     }
 
+    /**
+     * Transfère la propriété d'une carte au profil d'administration.
+     *
+     * @param mixed $id
+     */
     public function turnToAdmin($id)
     {
         $item = $this->model->find($id);
@@ -496,6 +535,9 @@ class ItemController extends BaseController
         return redirect()->back()->with('error', "Vous n'avez pas les droits pour effectuer cette action.");
     }
 
+    /**
+     * Met à jour l'ordre d'affichage des cartes via un appel AJAX.
+     */
     public function updateOrder()
     {
         if ($this->request->is('ajax')) {
@@ -528,19 +570,21 @@ class ItemController extends BaseController
         return $this->response->setJSON(['success' => false, 'error' => 'Requête invalide.']);
     }
 
+    /**
+     * Vérifie en direct via AJAX la disponibilité d'une vidéo/lecteur sur une URL ciblée.
+     */
     public function checkDispo()
     {
         $urlCible = $this->request->getGet('urlCible');
+
         if (empty($urlCible) || !filter_var($urlCible, FILTER_VALIDATE_URL)) {
             return $this->response->setJSON(['success' => false, 'error' => 'URL invalide.']);
         }
 
         $siteConfigModel = new SiteConfigModel();
-
-        // Requête directe sans cache
         $sites = $siteConfigModel->where('is_active', 1)->findAll();
-
         $currentConfig = null;
+
         foreach ($sites as $config) {
             if (false !== stripos($urlCible, $config['domain'])) {
                 $currentConfig = $config;
@@ -604,25 +648,30 @@ class ItemController extends BaseController
         }
     }
 
+    /**
+     * Affiche la vue de la corbeille.
+     */
     public function viewDeleted()
     {
         $userId = auth()->id();
         $isSuperAdmin = auth()->user()->inGroup('superadmin');
-
         $deletedItems = $this->model->getDeletedItems($isSuperAdmin ? null : $userId);
 
         return view('items/deleted_items', ['deletedItems' => $deletedItems]);
     }
 
+    /**
+     * Restaure une carte spécifique.
+     *
+     * @param mixed $id
+     */
     public function restore($id)
     {
         $isSuperAdmin = auth()->user()->inGroup('superadmin');
-
         $item = $this->model->withDeleted()->find($id);
 
         if ($item && ((int) $item->id_user === (int) auth()->id() || $isSuperAdmin)) {
             $this->model->builder()->where('id', $id)->update(['deleted_at' => null]);
-
             (new AuditLogModel())->logAction('Restauration', "La carte ID {$id} ('{$item->titre}') a été restaurée de la corbeille.");
 
             return redirect()->back()->with('message', "La carte '{$item->titre}' a été restaurée avec succès.");
@@ -631,18 +680,20 @@ class ItemController extends BaseController
         return redirect()->back()->with('error', "Vous n'avez pas l'autorisation de restaurer cette carte.");
     }
 
+    /**
+     * Supprime définitivement une carte.
+     *
+     * @param mixed $id
+     */
     public function permanentDelete($id)
     {
         $isSuperAdmin = auth()->user()->inGroup('superadmin');
-
         $item = $this->model->withDeleted()->find($id);
 
         if ($item && ((int) $item->id_user === (int) auth()->id() || $isSuperAdmin)) {
             $titre = $item->titre;
-
             $this->model->delete($id, true);
             (new CronLogModel())->where('item_id', $id)->delete();
-
             (new AuditLogModel())->logAction('Suppression Définitive', "La carte ID {$id} ('{$titre}') a été détruite définitivement.");
 
             return redirect()->back()->with('message', "La carte '{$titre}' a été définitivement supprimée de la base de données.");
@@ -651,11 +702,13 @@ class ItemController extends BaseController
         return redirect()->back()->with('error', "Vous n'avez pas l'autorisation de supprimer définitivement cette carte.");
     }
 
+    /**
+     * Restaure l'intégralité des cartes de la corbeille.
+     */
     public function restoreAll()
     {
         $isSuperAdmin = auth()->user()->inGroup('superadmin');
         $userId = auth()->id();
-
         $builder = $this->model->builder()->where('deleted_at IS NOT NULL');
 
         if (!$isSuperAdmin) {
@@ -663,17 +716,18 @@ class ItemController extends BaseController
         }
 
         $builder->update(['deleted_at' => null]);
-
         (new AuditLogModel())->logAction('Restauration Globale', 'Toutes les cartes de la corbeille ont été restaurées.');
 
         return redirect()->back()->with('message', 'Vos cartes ont été restaurées avec succès.');
     }
 
+    /**
+     * Vide intégralement la corbeille.
+     */
     public function emptyTrash()
     {
         $isSuperAdmin = auth()->user()->inGroup('superadmin');
         $userId = auth()->id();
-
         $query = $this->model->onlyDeleted();
 
         if (!$isSuperAdmin) {
@@ -681,19 +735,19 @@ class ItemController extends BaseController
         }
 
         $itemsToDelete = $query->findAll();
-
         if (!empty($itemsToDelete)) {
             $itemIds = array_column($itemsToDelete, 'id');
-
             (new CronLogModel())->whereIn('item_id', $itemIds)->delete();
             $this->model->builder()->whereIn('id', $itemIds)->delete();
-
             (new AuditLogModel())->logAction('Vidage Corbeille', 'La corbeille a été vidée définitivement ('.count($itemIds).' cartes détruites).');
         }
 
         return redirect()->back()->with('message', 'Vos cartes supprimées ont été vidées définitivement.');
     }
 
+    /**
+     * Récupère les métadonnées OpenGraph (Titre, Image, Description) d'une URL fournie.
+     */
     private function scrapeOpenGraph(string $url): ?array
     {
         $html = @file_get_contents($url);

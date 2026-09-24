@@ -5,14 +5,16 @@ declare(strict_types=1);
 namespace App\Controllers\Admin;
 
 use App\Controllers\BaseController;
-use App\Models\AuditLogModel;  // Ajout de l'audit
+use App\Models\AuditLogModel;
 
 class UserController extends BaseController
 {
+    /**
+     * Liste tabulaire de l'ensemble des utilisateurs enregistrés sur la plateforme.
+     */
     public function index()
     {
         $users = auth()->getProvider();
-
         $data = [
             'users' => $users->where('id !=', 0)->paginate(20),
             'pager' => $users->pager,
@@ -22,6 +24,11 @@ class UserController extends BaseController
         return view('admin/users/index', $data);
     }
 
+    /**
+     * Affiche la vue d'édition des rôles et informations d'un utilisateur cible.
+     *
+     * @param mixed $id
+     */
     public function edit($id)
     {
         $users = auth()->getProvider();
@@ -32,6 +39,7 @@ class UserController extends BaseController
             return redirect()->to('users')->with('error', 'Utilisateur introuvable.');
         }
 
+        // Protection : seul un SuperAdmin peut modifier un autre SuperAdmin
         if ($user->inGroup('superadmin') && !$currentUser->inGroup('superadmin')) {
             $audit = new AuditLogModel();
             $audit->logAction('Alerte Sécurité', "L'admin ID {$currentUser->id} a tenté d'accéder à la page d'édition du SuperAdmin ID {$id}.");
@@ -40,7 +48,6 @@ class UserController extends BaseController
         }
 
         $availableGroups = config('AuthGroups')->groups;
-
         if (!$currentUser->inGroup('superadmin')) {
             unset($availableGroups['superadmin']);
         }
@@ -54,6 +61,11 @@ class UserController extends BaseController
         return view('admin/users/edit', $data);
     }
 
+    /**
+     * Processus de mise à jour des paramètres du profil administrateur / rôle.
+     *
+     * @param mixed $id
+     */
     public function update($id)
     {
         $users = auth()->getProvider();
@@ -71,11 +83,10 @@ class UserController extends BaseController
 
         $availableGroups = implode(',', array_keys(config('AuthGroups')->groups));
 
-        // Ajout de la règle de validation pour le mot de passe
         $rules = [
             'username' => "required|alpha_numeric_space|min_length[3]|max_length[30]|is_unique[users.username,id,{$id}]",
             'group' => "permit_empty|in_list[{$availableGroups}]",
-            'new_password' => 'permit_empty|min_length[8]', // Vous pouvez ajouter |strong_password si Shield est configuré pour
+            'new_password' => 'permit_empty|min_length[8]',
         ];
 
         if (!$this->validate($rules)) {
@@ -84,16 +95,15 @@ class UserController extends BaseController
 
         $oldUsername = $user->username;
         $newUsername = $this->request->getPost('username');
-        $newPassword = $this->request->getPost('new_password'); // Récupération du mdp
+        $newPassword = $this->request->getPost('new_password');
 
-        // Préparation des données à mettre à jour
         $fillData = [
             'username' => $newUsername,
         ];
 
-        // Si le superadmin a saisi un mot de passe, on l'ajoute
+        // Remplacement forcé du mot de passe si configuré (uniquement par le SuperAdmin)
         if (!empty($newPassword) && $currentUser->inGroup('superadmin')) {
-            $fillData['password'] = $newPassword; // Shield va automatiquement le hasher
+            $fillData['password'] = $newPassword;
         }
 
         $user->fill($fillData);
@@ -107,7 +117,6 @@ class UserController extends BaseController
             $logDetails .= "Pseudo: '{$oldUsername}' -> '{$newUsername}'. ";
         }
 
-        // Journalisation de la réinitialisation du mot de passe
         if (!empty($newPassword) && $currentUser->inGroup('superadmin')) {
             $logDetails .= 'Mot de passe réinitialisé par le SuperAdmin. ';
         }
@@ -120,7 +129,7 @@ class UserController extends BaseController
                 return redirect()->to('users')->with('error', 'Déploiement du grade Super Admin refusé.');
             }
             $user->syncGroups($newGroup);
-            $logDetails .= "Nouveau groupe de sécurité assigné: [{$newGroup}].";
+            $logDetails .= "Nouveau groupe de sécurité assigné : [{$newGroup}].";
         }
 
         $audit->logAction('Modification Profil', $logDetails);
@@ -128,6 +137,11 @@ class UserController extends BaseController
         return redirect()->to('users')->with('message', 'Paramètres utilisateurs synchronisés.');
     }
 
+    /**
+     * Banni temporairement un utilisateur (Gèle la connexion).
+     *
+     * @param mixed $id
+     */
     public function delete($id)
     {
         $users = auth()->getProvider();
@@ -148,12 +162,16 @@ class UserController extends BaseController
         }
 
         $user->ban("Accès révoqué par l'administration.");
-
         $audit->logAction('Sanction : Bannissement', "Le compte ID {$id} ('{$user->username}') a été suspendu de la plateforme.");
 
         return redirect()->to('users')->with('message', 'Le profil a été suspendu avec succès. Ses cartes ont été conservées.');
     }
 
+    /**
+     * Lève la restriction d'accès d'un utilisateur précédemment banni.
+     *
+     * @param mixed $id
+     */
     public function unban($id)
     {
         $users = auth()->getProvider();
@@ -170,7 +188,6 @@ class UserController extends BaseController
         }
 
         $user->unBan();
-
         $audit->logAction('Réhabilitation Compte', "Le bannissement du compte ID {$id} ('{$user->username}') a été levé.");
 
         return redirect()->to('users')->with('message', "Le compte a été réhabilité. L'utilisateur peut à nouveau se connecter et accorder ses cartes.");
