@@ -57,6 +57,7 @@ class Filters extends BaseFilters
         ],
 
         'after' => [
+            'minifier',
             'honeypot',
             'errorlogger',
         ],
