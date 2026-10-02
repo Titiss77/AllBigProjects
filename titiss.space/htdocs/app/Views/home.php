@@ -16,9 +16,9 @@
         Gérez automatiquement les métadonnées, gérez vos statuts de visionnage et explorez les collections publiques !
     </p>
     <div style="display: flex; gap: 15px; justify-content: center; flex-wrap: wrap;">
-        <a href="<?php echo base_url('register'); ?>" class="btn btn-primary"
+        <a href="<?php echo base_url('y'); ?>" class="btn btn-primary"
             style="padding: 14px 32px; font-size: 1.1rem; border-radius: 50px;">Créer mon compte gratuit</a>
-        <a href="<?php echo base_url('login'); ?>" class="btn btn-cancel"
+        <a href="<?php echo base_url('z'); ?>" class="btn btn-cancel"
             style="padding: 14px 32px; font-size: 1.1rem; border-radius: 50px;">Me connecter</a>
     </div>
 </div>
@@ -70,18 +70,18 @@ document.addEventListener("DOMContentLoaded", function() {
 <!-- Boutons d'actions Admin et Ajout de carte -->
 <div class="actions-container" style="align-items: flex-start;">
     <?php if (auth()->user()->inGroup('superadmin')) { ?>
-    <a href="<?php echo base_url('users'); ?>" class="btn btn-warning" style="margin-right: 15px;">Gérer les
+    <a href="<?php echo base_url('a/u'); ?>" class="btn btn-warning" style="margin-right: 15px;">Gérer les
         utilisateurs</a>
     <?php } ?>
     <?php if (auth()->user()->inGroup('admin', 'superadmin')) { ?>
-    <a href="<?php echo base_url('items/pending'); ?>" class="btn btn-info" style="margin-right: 15px;">
+    <a href="<?php echo base_url('a/i'); ?>" class="btn btn-info" style="margin-right: 15px;">
         Cartes en attente
         <?php if (isset($pendingTotal) && $pendingTotal > 0) { ?>
         <span
             style="background-color: var(--danger); color: #fff; padding: 2px 6px; border-radius: 50%; font-size: 0.8em; margin-left: 5px; font-weight: bold;"><?php echo $pendingTotal; ?></span>
         <?php } ?>
     </a>
-    <a href="<?php echo base_url('items/check-to-global'); ?>" class="btn btn-warning" style="margin-right: 15px;">
+    <a href="<?php echo base_url('g'); ?>" class="btn btn-warning" style="margin-right: 15px;">
         Autres publiques
         <?php if (isset($toAdminCount) && $toAdminCount > 0) { ?>
         <span
@@ -91,9 +91,9 @@ document.addEventListener("DOMContentLoaded", function() {
     <?php } ?>
 
     <div style="display: flex; flex-direction: column; align-items: center; gap: 6px;">
-        <a href="<?php echo base_url('item/form'); ?>" class="btn btn-success" style="margin: 0;">+ Ajouter une
+        <a href="<?php echo base_url('m'); ?>" class="btn btn-success" style="margin: 0;">+ Ajouter une
             carte</a>
-        <a href="<?php echo base_url('items/deleted'); ?>" class="btn-suppr">Cartes supprimées</a>
+        <a href="<?php echo base_url('r'); ?>" class="btn-suppr">Cartes supprimées</a>
     </div>
 </div>
 <?php } ?>
@@ -105,7 +105,7 @@ document.addEventListener("DOMContentLoaded", function() {
     <h2>Vous n'avez pas encore de cartes.</h2>
     <p>Commencez par en ajouter une !</p>
     <br>
-    <a href="<?php echo base_url('item/form'); ?>" class="btn btn-success">+ Ajouter une carte</a>
+    <a href="<?php echo base_url('m'); ?>" class="btn btn-success">+ Ajouter une carte</a>
 </div>
 <?php } else { ?>
 <div class="empty-state" style="margin-top: 2rem;">
@@ -342,9 +342,9 @@ document.addEventListener("DOMContentLoaded", function() {
                                     <!-- Boutons d'édition (Propriétaire uniquement) -->
                                     <?php if (auth()->loggedIn() && (int) $item->id_user === (int) auth()->id()) { ?>
                                     <div class="card-actions-bottom">
-                                        <a href="<?php echo base_url('item/form/'.$item->id); ?>"
+                                        <a href="<?php echo base_url('m/'.$item->id); ?>"
                                             class="btn-icon btn-edit-sm">Modifier</a>
-                                        <a href="<?php echo base_url('item/delete/'.$item->id); ?>"
+                                        <a href="<?php echo base_url('d/'.$item->id); ?>"
                                             onclick="return confirm('Êtes-vous sûr de vouloir supprimer cette carte ?');"
                                             class="btn-icon btn-delete-sm">Supprimer</a>
                                     </div>

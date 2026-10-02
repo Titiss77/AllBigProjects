@@ -184,7 +184,7 @@ document.addEventListener('DOMContentLoaded', function() {
             const divisionId = button.getAttribute('data-division');
             const subCategory = button.getAttribute('data-sub');
             const baseUrl = siteConfig.baseUrl.endsWith('/') ? siteConfig.baseUrl : siteConfig.baseUrl + '/';
-            const url = baseUrl + 'item/increment-episode/' + itemId;
+            const url = baseUrl + 'e/' + itemId;
             const counterSpan = document.getElementById(`ep-count-${itemId}`);
             try {
                 const response = await fetch(url, {
@@ -410,7 +410,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 typeSelectionne = 'lien';
             }
             const baseUrl = siteConfig.baseUrl.endsWith('/') ? siteConfig.baseUrl : siteConfig.baseUrl + '/';
-            const url = `${baseUrl}item/search?q=${encodeURIComponent(titreInput)}&type=${typeSelectionne}`;
+            const url = `${baseUrl}f?q=${encodeURIComponent(titreInput)}&type=${typeSelectionne}`;
             try {
                 const response = await fetch(url);
                 const data = await response.json();
@@ -583,10 +583,14 @@ document.addEventListener('DOMContentLoaded', function() {
                     .then(data => {
                         if (data.status === 'executed') {
                             alert('Scan terminé avec succès !\n\nCartes inspectées : ' + data.total_cards +
-                                   '\nDomaines uniques interrogés : ' + data.unique_domains +
+                                   '\nURL uniques vérifiées : ' + data.unique_urls +
                                    '\nNouveaux liens rompus identifiés : ' + data.dead_count);
+                        } else if (data.status === 'running') {
+                            alert('Une vérification des liens est déjà en cours.');
+                        } else if (data.status === 'skipped') {
+                            alert('La vérification a déjà été effectuée cette semaine.');
                         } else {
-                            alert('Le scan a retourné un statut inattendu.');
+                            alert(data.message || 'Le scan a retourné un statut inattendu.');
                         }
                         window.location.reload();
                     })
@@ -635,7 +639,7 @@ document.addEventListener('DOMContentLoaded', function() {
                     const titre = titreInput.value.trim();
                     const baseUrl = siteConfig.baseUrl.endsWith('/') ? siteConfig.baseUrl : siteConfig.baseUrl + '/';
                                          
-                    const url = `${baseUrl}item/search?q=${encodeURIComponent(titre)}&type=serie`;
+                    const url = `${baseUrl}f?q=${encodeURIComponent(titre)}&type=serie`;
                     try {
                         champTotalEp.style.transition = 'opacity 0.3s';
                         champTotalEp.style.opacity = '0.5';
@@ -742,7 +746,7 @@ window.addEventListener('load', function() {
 
         try {
             const baseUrl = siteConfig.baseUrl.endsWith('/') ? siteConfig.baseUrl : siteConfig.baseUrl + '/';
-            const response = await fetch(`${baseUrl}item/check-dispo?urlCible=${encodeURIComponent(url)}`, {
+            const response = await fetch(`${baseUrl}q?urlCible=${encodeURIComponent(url)}`, {
                 method: 'GET',
                 headers: { 'X-Requested-With': 'XMLHttpRequest' }
             });
