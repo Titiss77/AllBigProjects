@@ -1,6 +1,9 @@
 <?php
 $dayMap = [1 => 'Lundi', 2 => 'Mardi', 3 => 'Mercredi', 4 => 'Jeudi', 5 => 'Vendredi', 6 => 'Samedi', 7 => 'Dimanche'];
 $todayString =$dayMap[(int)date('N')];
+$eventCount = count($rawEvents);
+$totalMinutes = array_sum(array_map(static fn($event) => (int)$event['duration'], $rawEvents));
+$calendarPeriod = $calendar['start_date'] ? date('d/m/Y', strtotime($calendar['start_date'])) . ' – ' . date('d/m/Y', strtotime($calendar['end_date'])) : 'Sans limite de dates';
 ?>
 <!DOCTYPE html>
 <html lang="fr">
@@ -8,7 +11,7 @@ $todayString =$dayMap[(int)date('N')];
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Calendrier Hebdomadaire (Style iOS)</title>
+    <title><?= htmlspecialchars($calendar['name'], ENT_QUOTES, 'UTF-8') ?> · Planning</title>
     <style>
     body {
         font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
@@ -359,12 +362,151 @@ $todayString =$dayMap[(int)date('N')];
         font-size: 11px;
         cursor: pointer;
     }
+    :root { color-scheme: light; --ink:#172033; --muted:#697386; --line:#e7ebf2; --blue:#2563eb; --surface:#fff; --canvas:#f4f7fb; }
+    * { box-sizing:border-box; }
+    body { margin:0; padding:32px clamp(14px,4vw,56px) 56px; color:var(--ink); background:var(--canvas); font-family:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; }
+    h2 { margin:8px 0 5px; text-align:left; font-size:clamp(25px,4vw,36px); letter-spacing:-.04em; }
+    .page-subtitle { margin:0 0 24px; color:var(--muted); }
+    .page-header,.calendar-panel,.manage-panel,.controls-container,.calendar-shell { max-width:1440px; margin-left:auto; margin-right:auto; }
+    .calendar-panel { background:var(--surface); border:1px solid var(--line); border-radius:18px; padding:18px; box-shadow:0 10px 35px rgba(25,45,80,.05); margin-bottom:18px; }
+    .calendar-picker-form { display:flex; gap:12px; align-items:center; flex-wrap:wrap; }
+    .calendar-picker-form label { font-size:13px; color:var(--muted); font-weight:700; }
+    .calendar-picker-form .form-control { max-width:440px; min-width:min(100%,280px); }
+    .calendar-meta { color:var(--muted); font-size:13px; }
+    .badge { display:inline-flex; align-items:center; gap:6px; padding:6px 10px; border-radius:999px; background:#eaf2ff; color:#1d4ed8; font-size:12px; font-weight:700; }
+    .badge.archived { background:#eef0f3; color:#606a7a; }
+    .manage-panel { padding:0 18px; background:var(--surface); border:1px solid var(--line); border-radius:16px; margin-bottom:18px; }
+    .manage-panel summary { padding:16px 2px; cursor:pointer; font-weight:700; }
+    .management-grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:16px; padding:0 0 18px; }
+    .management-card { border:1px solid var(--line); border-radius:13px; padding:16px; }
+    .management-card h3 { margin:0 0 12px; font-size:15px; }
+    .management-card .form-group { margin-bottom:10px; }
+    .btn-ios { background:var(--blue); padding:10px 15px; border-radius:9px; }
+    .btn-ios:hover { background:#1d4ed8; }
+    .btn-secondary { display:inline-block; padding:9px 13px; color:#334155; background:#eef2f7; border:0; border-radius:9px; font-weight:700; cursor:pointer; }
+    .btn-danger { display:inline-block; padding:9px 13px; color:#b42318; background:#fff0ef; border:0; border-radius:9px; font-weight:700; cursor:pointer; }
+    .stats-grid { max-width:1440px; margin:0 auto 18px; display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:12px; }
+    .stat-card { background:white; border:1px solid var(--line); border-radius:14px; padding:15px 18px; }
+    .stat-label { display:block; color:var(--muted); font-size:12px; margin-bottom:6px; }
+    .stat-value { font-size:20px; font-weight:750; letter-spacing:-.02em; }
+    .controls-container { padding:0 2px; }
+    .calendar-shell { overflow:auto; background:white; border:1px solid var(--line); border-radius:16px; box-shadow:0 10px 35px rgba(25,45,80,.05); }
+    #calendarTable { min-width:900px; }
+    #calendarTable thead th { position:sticky; top:0; z-index:30; padding:14px 5px; background:#f9fafc; border-bottom:1px solid var(--line); }
+    #calendarTable tbody tr { height:64px; }
+    #calendarTable td { height:64px; }
+    #calendarTable .time-col { position:sticky; left:0; z-index:24; background:#fff; }
+    #calendarTable thead .time-col { z-index:35; background:#f9fafc; }
+    .event-card { left:5px; right:5px; border-radius:8px; padding:7px 8px; font-size:12px; box-shadow:0 2px 7px rgba(20,30,50,.08); }
+    .event-card[draggable="false"] { cursor:default; }
+    th.current-day,td.current-day { background-color:#fff8f7; }
+    .activity-item { gap:12px; }
+    .activity-item form { flex-shrink:0; }
+    .form-control { min-height:40px; border-color:#d8deea; border-radius:9px; }
+    .form-control:focus { outline:3px solid #dbeafe; border-color:#60a5fa; }
+    .modal-content { border-radius:18px; }
+    .empty-state { padding:32px 14px; text-align:center; color:var(--muted); }
+    .alert-error { padding:11px 13px; color:#991b1b; background:#fef2f2; border:1px solid #fecaca; border-radius:10px; }
+    @media (max-width:760px) {
+        body { padding:22px 12px 36px; }
+        .management-grid { grid-template-columns:1fr; }
+        .stats-grid { grid-template-columns:1fr 1fr; }
+        .calendar-panel { padding:14px; }
+        .calendar-picker-form { align-items:stretch; }
+        .calendar-picker-form .form-control { max-width:none; }
+        .controls-container { gap:12px; align-items:flex-start; flex-direction:column; }
+        .toggle-label { font-size:12px; }
+    }
     </style>
 </head>
 
 <body>
 
-    <h2>Planning Hebdomadaire</h2>
+    <header class="page-header">
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;">
+        <div>
+        <h2>Mon planning</h2>
+        <p class="page-subtitle">Votre semaine en un coup d’œil. Déplacez les activités pour ajuster les horaires.</p>
+        </div>
+        <div style="display:flex;align-items:center;gap:12px;"><span class="calendar-meta">Bonjour, <?= htmlspecialchars((string)($_SESSION['user']['name']??''),ENT_QUOTES,'UTF-8') ?></span><form method="POST" action="?auth=logout" style="margin:0;"><input type="hidden" name="csrf_token" value="<?= htmlspecialchars(csrfToken(),ENT_QUOTES,'UTF-8') ?>"><button class="btn-secondary" type="submit">Déconnexion</button></form></div>
+        </div>
+    </header>
+
+    <section class="calendar-panel">
+        <form class="calendar-picker-form" method="GET" action="">
+            <label for="calendarSelect">CALENDRIER</label>
+            <select id="calendarSelect" name="calendar" class="form-control" onchange="this.form.submit()">
+                <?php foreach ($calendars as $item): ?>
+                <option value="<?= (int)$item['id'] ?>" <?= (int)$item['id'] === $calendarId ? 'selected' : '' ?>>
+                    <?= htmlspecialchars($item['name'], ENT_QUOTES, 'UTF-8') ?><?= (int)$item['is_global'] === 1 ? ' — global' : (($item['archived'] ? ' — archivé' : ' — ' . date('d/m/Y', strtotime($item['start_date'])) . ' au ' . date('d/m/Y', strtotime($item['end_date'])))) ?>
+                </option>
+                <?php endforeach; ?>
+            </select>
+        </form>
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-top:14px;">
+            <div><strong><?= htmlspecialchars($calendar['name'], ENT_QUOTES, 'UTF-8') ?></strong><div class="calendar-meta"><?= htmlspecialchars($calendarPeriod, ENT_QUOTES, 'UTF-8') ?></div></div>
+            <span class="badge <?= $isArchived ? 'archived' : '' ?>"><?= $isArchived ? 'Archivé · lecture seule' : ((int)$calendar['is_global'] === 1 ? 'Calendrier global' : 'Calendrier actif') ?></span>
+        </div>
+        <?php if (isset($errorMessage)): ?><p class="alert-error"><?= htmlspecialchars($errorMessage, ENT_QUOTES, 'UTF-8') ?></p><?php endif; ?>
+    </section>
+
+    <section class="stats-grid" aria-label="Résumé du calendrier">
+        <div class="stat-card"><span class="stat-label">ACTIVITÉS PAR SEMAINE</span><span class="stat-value"><?= $eventCount ?></span></div>
+        <div class="stat-card"><span class="stat-label">TEMPS PLANIFIÉ</span><span class="stat-value"><?= intdiv($totalMinutes,60) ?> h <?= sprintf('%02d', $totalMinutes % 60) ?></span></div>
+        <div class="stat-card"><span class="stat-label">PÉRIODE</span><span class="stat-value" style="font-size:15px;"><?= htmlspecialchars($calendarPeriod, ENT_QUOTES, 'UTF-8') ?></span></div>
+    </section>
+
+    <details class="manage-panel" <?= isset($errorMessage) ? 'open' : '' ?>>
+        <summary>Gérer les calendriers</summary>
+        <div class="management-grid">
+            <section class="management-card">
+                <h3>Créer un calendrier</h3>
+                <form method="POST" action="">
+                    <input type="hidden" name="csrf_token" value="<?= htmlspecialchars(csrfToken(),ENT_QUOTES,'UTF-8') ?>">
+                    <input type="hidden" name="action" value="create_calendar">
+                    <div class="form-group"><label>Nom</label><input class="form-control" name="name" maxlength="100" required placeholder="Ex. Saison 2026"></div>
+                    <div class="form-group"><label>Date de début</label><input class="form-control" type="date" name="start_date" required></div>
+                    <div class="form-group"><label>Date de fin</label><input class="form-control" type="date" name="end_date" required></div>
+                    <button class="btn-ios" type="submit">Créer</button>
+                </form>
+            </section>
+            <?php if ((int)$calendar['is_global'] !== 1): ?>
+            <section class="management-card">
+                <h3>Modifier ce calendrier</h3>
+                <form method="POST" action="">
+                    <input type="hidden" name="csrf_token" value="<?= htmlspecialchars(csrfToken(),ENT_QUOTES,'UTF-8') ?>">
+                    <input type="hidden" name="action" value="update_calendar"><input type="hidden" name="calendar_id" value="<?= $calendarId ?>">
+                    <div class="form-group"><label>Nom</label><input class="form-control" name="name" maxlength="100" required value="<?= htmlspecialchars($calendar['name'], ENT_QUOTES, 'UTF-8') ?>"></div>
+                    <div class="form-group"><label>Date de début</label><input class="form-control" type="date" name="start_date" required value="<?= htmlspecialchars($calendar['start_date'], ENT_QUOTES, 'UTF-8') ?>"></div>
+                    <div class="form-group"><label>Date de fin</label><input class="form-control" type="date" name="end_date" required value="<?= htmlspecialchars($calendar['end_date'], ENT_QUOTES, 'UTF-8') ?>"></div>
+                    <button class="btn-secondary" type="submit">Enregistrer</button>
+                </form>
+            </section>
+            <?php endif; ?>
+            <section class="management-card">
+                <h3>Dupliquer ce planning</h3>
+                <form method="POST" action="">
+                    <input type="hidden" name="csrf_token" value="<?= htmlspecialchars(csrfToken(),ENT_QUOTES,'UTF-8') ?>">
+                    <input type="hidden" name="action" value="duplicate_calendar"><input type="hidden" name="calendar_id" value="<?= $calendarId ?>">
+                    <div class="form-group"><label>Nom du nouveau calendrier</label><input class="form-control" name="name" maxlength="100" required value="Copie - <?= htmlspecialchars($calendar['name'], ENT_QUOTES, 'UTF-8') ?>"></div>
+                    <div class="form-group"><label>Date de début</label><input class="form-control" type="date" name="start_date" required></div>
+                    <div class="form-group"><label>Date de fin</label><input class="form-control" type="date" name="end_date" required></div>
+                    <button class="btn-secondary" type="submit">Dupliquer avec ses activités</button>
+                </form>
+            </section>
+            <?php if ((int)$calendar['is_global'] !== 1): ?>
+            <section class="management-card">
+                <h3>Supprimer ce calendrier</h3>
+                <p class="calendar-meta">Ses activités seront également supprimées.</p>
+                <form method="POST" action="" onsubmit="return confirm('Supprimer ce calendrier et toutes ses activités ? Cette action est définitive.');">
+                    <input type="hidden" name="csrf_token" value="<?= htmlspecialchars(csrfToken(),ENT_QUOTES,'UTF-8') ?>">
+                    <input type="hidden" name="action" value="delete_calendar"><input type="hidden" name="calendar_id" value="<?= $calendarId ?>">
+                    <button class="btn-danger" type="submit">Supprimer le calendrier</button>
+                </form>
+            </section>
+            <?php endif; ?>
+        </div>
+    </details>
 
     <div class="controls-container">
         <div class="toggle-container">
@@ -382,9 +524,10 @@ $todayString =$dayMap[(int)date('N')];
                 ?>)
             </span>
         </div>
-        <button class="btn-ios" id="openModalBtn">Gérer les activités</button>
+        <?php if (!$isArchived): ?><button class="btn-ios" id="openModalBtn">Gérer les activités</button><?php endif; ?>
     </div>
 
+    <div class="calendar-shell">
     <table id="calendarTable" class="hide-unavailable">
         <thead>
             <tr>
@@ -421,7 +564,7 @@ $todayString =$dayMap[(int)date('N')];
                             $gap = (int)$evt['gap_to_next'];
                             $color = htmlspecialchars($evt['color'], ENT_QUOTES, 'UTF-8');
                         ?>
-                    <div class="event-card" draggable="true" data-id="<?= $evt['id'] ?>"
+                    <div class="event-card" draggable="<?= $isArchived ? 'false' : 'true' ?>" data-id="<?= $evt['id'] ?>"
                         style="height: <?= $duration ?>px; top: <?= $offset ?>px; border-left-color: <?= $color ?>; color: <?= $color ?>; background-color: <?= $color ?>26;"
                         title="<?= htmlspecialchars($evt['title'] . ' (' .$duration . ' min)', ENT_QUOTES, 'UTF-8') ?>">
                         <?= htmlspecialchars($evt['title'], ENT_QUOTES, 'UTF-8') ?>
@@ -444,6 +587,7 @@ $todayString =$dayMap[(int)date('N')];
             <?php endforeach; ?>
         </tbody>
     </table>
+    </div>
 
     <div class="modal-overlay" id="activityModal">
         <div class="modal-content">
@@ -452,8 +596,10 @@ $todayString =$dayMap[(int)date('N')];
                 <button class="close-btn" id="closeModalBtn">&times;</button>
             </div>
 
-            <form method="POST" action="">
+            <?php if (!$isArchived): ?><form method="POST" action="">
+                <input type="hidden" name="csrf_token" value="<?= htmlspecialchars(csrfToken(),ENT_QUOTES,'UTF-8') ?>">
                 <input type="hidden" name="action" value="add">
+                <input type="hidden" name="calendar_id" value="<?= $calendarId ?>">
 
                 <div class="form-group">
                     <label>Titre de l'activité</label>
@@ -494,12 +640,13 @@ $todayString =$dayMap[(int)date('N')];
 
                 <button type="submit" class="btn-ios" style="width: 100%; margin-top: 10px;">Ajouter au
                     planning</button>
-            </form>
+            </form><?php endif; ?>
 
             <div class="activity-list">
                 <label
                     style="display: block; font-size: 12px; color: #8e8e93; margin-bottom: 10px; font-weight: 500;">Activités
                     enregistrées</label>
+                <?php if (!$rawEvents): ?><p class="empty-state"><?= $isArchived ? 'Aucune activité enregistrée dans ce calendrier.' : 'Aucune activité pour le moment. Ajoutez votre première activité avec le formulaire ci-dessus.' ?></p><?php endif; ?>
                 <?php foreach ($rawEvents as$event): ?>
                 <div class="activity-item">
                     <div>
@@ -508,12 +655,14 @@ $todayString =$dayMap[(int)date('N')];
                         <?= htmlspecialchars($event['title'], ENT_QUOTES, 'UTF-8') ?>
                         (<?= (int)$event['duration'] ?> min)
                     </div>
-                    <form method="POST" action="" style="margin: 0;">
+                    <?php if (!$isArchived): ?><form method="POST" action="" style="margin: 0;">
+                        <input type="hidden" name="csrf_token" value="<?= htmlspecialchars(csrfToken(),ENT_QUOTES,'UTF-8') ?>">
                         <input type="hidden" name="action" value="delete">
+                        <input type="hidden" name="calendar_id" value="<?= $calendarId ?>">
                         <input type="hidden" name="id" value="<?= (int)$event['id'] ?>">
                         <button type="submit" class="btn-delete"
                             onclick="return confirm('Supprimer cet entraînement ?');">Supprimer</button>
-                    </form>
+                    </form><?php endif; ?>
                 </div>
                 <?php endforeach; ?>
             </div>
@@ -525,14 +674,17 @@ $todayString =$dayMap[(int)date('N')];
 
         const toggle = document.getElementById('toggleAvailability');
         const table = document.getElementById('calendarTable');
-
+        const availabilityPreference = localStorage.getItem('calendar-hide-unavailable');
+        if (availabilityPreference === 'false') { toggle.checked = false; table.classList.remove('hide-unavailable'); }
         toggle.addEventListener('change', function() {
             if (this.checked) table.classList.add('hide-unavailable');
             else table.classList.remove('hide-unavailable');
+            localStorage.setItem('calendar-hide-unavailable', String(this.checked));
         });
 
         const modal = document.getElementById('activityModal');
-        document.getElementById('openModalBtn').addEventListener('click', () => modal.style.display = 'flex');
+        const openModalBtn = document.getElementById('openModalBtn');
+        if (openModalBtn) openModalBtn.addEventListener('click', () => modal.style.display = 'flex');
         document.getElementById('closeModalBtn').addEventListener('click', () => modal.style.display = 'none');
         window.addEventListener('click', (e) => {
             if (e.target === modal) modal.style.display = 'none';
@@ -540,7 +692,8 @@ $todayString =$dayMap[(int)date('N')];
 
         const titleColorMapping =
             <?= json_encode($titleColorMapping, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?>;
-        document.getElementById('titleInput').addEventListener('input', function() {
+        const titleInput = document.getElementById('titleInput');
+        if (titleInput) titleInput.addEventListener('input', function() {
             if (titleColorMapping[this.value.trim()]) {
                 document.getElementById('colorInput').value = titleColorMapping[this.value.trim()];
             }
@@ -653,6 +806,8 @@ $todayString =$dayMap[(int)date('N')];
 
                     const formData = new FormData();
                     formData.append('action', 'move');
+                    formData.append('csrf_token', '<?= htmlspecialchars(csrfToken(),ENT_QUOTES,'UTF-8') ?>');
+                    formData.append('calendar_id', '<?= $calendarId ?>');
                     formData.append('id', eventId);
                     formData.append('day', targetDay);
                     formData.append('time', newTime);

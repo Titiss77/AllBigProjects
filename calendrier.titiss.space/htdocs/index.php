@@ -24,6 +24,24 @@ function loadEnv(string $path): void {
 }
 
 loadEnv(__DIR__ . '/.env');
+require_once __DIR__ . '/auth.php';
+startSecureSession();
+
+header('X-Content-Type-Options: nosniff');
+header('X-Frame-Options: DENY');
+header('Referrer-Policy: strict-origin-when-cross-origin');
+header('Permissions-Policy: camera=(), microphone=(), geolocation=()');
+header('Cache-Control: no-store, private');
+if ((!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS']!=='off') || (($_SERVER['SERVER_PORT']??'')==='443')) {
+    header('Strict-Transport-Security: max-age=31536000; includeSubDomains');
+}
+
+if (isset($_GET['auth']) || currentUser() === null) {
+    require_once __DIR__ . '/Controllers/AuthController.php';
+    (new AuthController())->handle();
+    exit;
+}
+
 require_once __DIR__ . '/Controllers/CalendarController.php';
 
 $app = new CalendarController();
