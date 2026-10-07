@@ -25,6 +25,22 @@ class UserModel
         return $stmt->fetch(PDO::FETCH_ASSOC);
     }
 
+    public function getUserById($id)
+    {
+        $stmt = $this->db->prepare('SELECT id, username, password_hash FROM users WHERE id = :id LIMIT 1');
+        $stmt->execute([':id' => $id]);
+
+        return $stmt->fetch(PDO::FETCH_ASSOC);
+    }
+
+    public function updatePassword($id, $password)
+    {
+        $passwordHash = password_hash($password, PASSWORD_DEFAULT);
+        $stmt = $this->db->prepare('UPDATE users SET password_hash = :password_hash WHERE id = :id');
+
+        return $stmt->execute([':password_hash' => $passwordHash, ':id' => $id]);
+    }
+
     // AJOUT : Méthode pour insérer un nouvel utilisateur
     public function createUser($username, $password)
     {

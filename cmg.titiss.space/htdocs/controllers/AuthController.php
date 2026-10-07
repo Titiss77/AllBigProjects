@@ -94,6 +94,38 @@ class AuthController
         require 'views/register_view.php';
     }
 
+    public function changePassword()
+    {
+        $error = '';
+        $success = '';
+
+        if ('POST' === $_SERVER['REQUEST_METHOD']) {
+            $csrfToken = $_POST['csrf_token'] ?? '';
+            if (!hash_equals($_SESSION['csrf_token'] ?? '', $csrfToken)) {
+                $error = 'La demande a expiré. Veuillez réessayer.';
+            } else {
+                $currentPassword = $_POST['current_password'] ?? '';
+                $newPassword = $_POST['new_password'] ?? '';
+                $confirmPassword = $_POST['confirm_password'] ?? '';
+                $user = $this->model->getUserById($_SESSION['user_id']);
+
+                if (!$user || !password_verify($currentPassword, $user['password_hash'])) {
+                    $error = 'Le mot de passe actuel est incorrect.';
+                } elseif (strlen($newPassword) < 6) {
+                    $error = 'Le nouveau mot de passe doit contenir au moins 6 caractères.';
+                } elseif ($newPassword !== $confirmPassword) {
+                    $error = 'Les nouveaux mots de passe ne correspondent pas.';
+                } elseif (!$this->model->updatePassword($_SESSION['user_id'], $newPassword)) {
+                    $error = 'Une erreur est survenue. Veuillez réessayer.';
+                } else {
+                    $success = 'Votre mot de passe a été modifié.';
+                }
+            }
+        }
+
+        require 'views/change_password_view.php';
+    }
+
     public function logout()
     {
         $_SESSION = [];

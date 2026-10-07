@@ -111,6 +111,7 @@
         -->
 
         <a href="index.php?action=export" class="btn-export">Exporter CSV</a>
+        <a href="index.php?action=change-password" class="account-link">Modifier le mot de passe</a>
         <a href="index.php?action=logout" style="color: var(--danger);">Se déconnecter</a>
     </div>
 

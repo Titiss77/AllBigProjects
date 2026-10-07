@@ -48,7 +48,9 @@ if (!isset($_SESSION['user_id']) || empty($_SESSION['user_id'])) {
 // Gestion des routes protégées
 $controller = new MetricController();
 
-if ('save' === $action) {
+if ('change-password' === $action) {
+    $authController->changePassword();
+} elseif ('save' === $action) {
     $controller->save();
 } elseif ('export' === $action) {
     $controller->exportCSV();

@@ -118,6 +118,17 @@ select:focus {
     border: 1px solid var(--danger-border);
 }
 
+.success-msg {
+    color: #15803d;
+    background: #f0fdf4;
+    padding: 0.75rem;
+    border-radius: 6px;
+    margin-bottom: 1.25rem;
+    font-size: 0.85rem;
+    text-align: center;
+    border: 1px solid #bbf7d0;
+}
+
 .auth-footer {
     text-align: center;
     margin-top: 1.5rem;
@@ -155,6 +166,10 @@ select:focus {
 
 .user-bar a:hover {
     text-decoration: underline;
+}
+
+.user-bar a.account-link {
+    color: var(--primary);
 }
 
 .result-section {
