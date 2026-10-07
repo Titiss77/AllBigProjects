@@ -407,9 +407,16 @@ $calendarPeriod = $calendar['start_date'] ? date('d/m/Y', strtotime($calendar['s
     .modal-content { border-radius:18px; }
     .empty-state { padding:32px 14px; text-align:center; color:var(--muted); }
     .alert-error { padding:11px 13px; color:#991b1b; background:#fef2f2; border:1px solid #fecaca; border-radius:10px; }
+    .availability-row { display:grid; grid-template-columns:minmax(90px,1fr) auto minmax(90px,1fr) auto; gap:10px; align-items:end; margin:10px 0; }
+    .availability-row .form-group { margin:0; }
+    .availability-separator { padding:0 0 12px; color:var(--muted); }
+    .remove-period { height:40px; padding:0 12px; color:#b42318; background:#fff0ef; border:0; border-radius:9px; cursor:pointer; font-weight:700; }
+    .availability-actions { display:flex; gap:10px; flex-wrap:wrap; margin-top:14px; }
     @media (max-width:760px) {
         body { padding:22px 12px 36px; }
         .management-grid { grid-template-columns:1fr; }
+        .availability-row { grid-template-columns:1fr 1fr auto; }
+        .availability-separator { display:none; }
         .stats-grid { grid-template-columns:1fr 1fr; }
         .calendar-panel { padding:14px; }
         .calendar-picker-form { align-items:stretch; }
@@ -428,7 +435,7 @@ $calendarPeriod = $calendar['start_date'] ? date('d/m/Y', strtotime($calendar['s
         <h2>Mon planning</h2>
         <p class="page-subtitle">Votre semaine en un coup d’œil. Déplacez les activités pour ajuster les horaires.</p>
         </div>
-        <div style="display:flex;align-items:center;gap:12px;"><span class="calendar-meta">Bonjour, <?= htmlspecialchars((string)($_SESSION['user']['name']??''),ENT_QUOTES,'UTF-8') ?></span><form method="POST" action="?auth=logout" style="margin:0;"><input type="hidden" name="csrf_token" value="<?= htmlspecialchars(csrfToken(),ENT_QUOTES,'UTF-8') ?>"><button class="btn-secondary" type="submit">Déconnexion</button></form></div>
+        <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;"><span class="calendar-meta">Bonjour, <?= htmlspecialchars((string)($_SESSION['user']['name']??''),ENT_QUOTES,'UTF-8') ?></span><a class="btn-secondary" href="?auth=password">Modifier le mot de passe</a><form method="POST" action="?auth=logout" style="margin:0;"><input type="hidden" name="csrf_token" value="<?= htmlspecialchars(csrfToken(),ENT_QUOTES,'UTF-8') ?>"><button class="btn-secondary" type="submit">Déconnexion</button></form></div>
         </div>
     </header>
 
@@ -518,7 +525,7 @@ $calendarPeriod = $calendar['start_date'] ? date('d/m/Y', strtotime($calendar['s
                 Limiter au temps dispo
                 (<?php 
                     $labels = [];
-                    foreach ($availabilityPeriods as $period) {$labels[] = sprintf('%02d:00', $period['start']) . ' - ' . sprintf('\%02d:00', $period['end']);
+                    foreach ($availabilityPeriods as $period) {$labels[] = sprintf('%02d:00', $period['start']) . ' - ' . sprintf('%02d:00', $period['end']);
                     }
                     echo implode(' & ', $labels);
                 ?>)
@@ -526,6 +533,36 @@ $calendarPeriod = $calendar['start_date'] ? date('d/m/Y', strtotime($calendar['s
         </div>
         <?php if (!$isArchived): ?><button class="btn-ios" id="openModalBtn">Gérer les activités</button><?php endif; ?>
     </div>
+
+    <details class="manage-panel" <?= isset($errorMessage) ? 'open' : '' ?>>
+        <summary>Configurer mes heures disponibles</summary>
+        <div class="management-card" style="margin-bottom:18px;">
+            <p class="calendar-meta">Définissez les plages horaires affichées comme disponibles. Le bouton « Limiter au temps dispo » permet ensuite de masquer les heures situées en dehors de ces plages.</p>
+            <form method="POST" action="">
+                <input type="hidden" name="csrf_token" value="<?= htmlspecialchars(csrfToken(),ENT_QUOTES,'UTF-8') ?>">
+                <input type="hidden" name="action" value="save_availability">
+                <input type="hidden" name="calendar_id" value="<?= $calendarId ?>">
+                <div id="availabilitySlots">
+                    <?php foreach ($availabilityPeriods as $period): ?>
+                    <div class="availability-row">
+                        <div class="form-group"><label>De</label><select class="form-control" name="availability_start[]" required>
+                            <?php for($hour=0;$hour<24;$hour++): ?><option value="<?= $hour ?>" <?= (int)$period['start']===$hour?'selected':'' ?>><?= sprintf('%02d:00',$hour) ?></option><?php endfor; ?>
+                        </select></div>
+                        <span class="availability-separator">à</span>
+                        <div class="form-group"><label>À</label><select class="form-control" name="availability_end[]" required>
+                            <?php for($hour=1;$hour<=24;$hour++): ?><option value="<?= $hour ?>" <?= (int)$period['end']===$hour?'selected':'' ?>><?= sprintf('%02d:00',$hour) ?></option><?php endfor; ?>
+                        </select></div>
+                        <button type="button" class="remove-period" aria-label="Supprimer cette plage">Supprimer</button>
+                    </div>
+                    <?php endforeach; ?>
+                </div>
+                <div class="availability-actions">
+                    <button class="btn-secondary" type="button" id="addAvailabilitySlot">+ Ajouter une plage</button>
+                    <button class="btn-ios" type="submit">Enregistrer les horaires</button>
+                </div>
+            </form>
+        </div>
+    </details>
 
     <div class="calendar-shell">
     <table id="calendarTable" class="hide-unavailable">
@@ -671,6 +708,49 @@ $calendarPeriod = $calendar['start_date'] ? date('d/m/Y', strtotime($calendar['s
 
     <script>
     document.addEventListener('DOMContentLoaded', function() {
+
+        const availabilitySlots = document.getElementById('availabilitySlots');
+        const addAvailabilitySlot = document.getElementById('addAvailabilitySlot');
+        function refreshAvailabilityControls() {
+            const rows = availabilitySlots.querySelectorAll('.availability-row');
+            availabilitySlots.querySelectorAll('.remove-period').forEach(button => button.disabled = rows.length <= 1);
+            addAvailabilitySlot.disabled = rows.length >= 8;
+            addAvailabilitySlot.style.opacity = rows.length >= 8 ? '.5' : '1';
+        }
+        function makeHourSelect(name, first, last, selected, label) {
+            const group = document.createElement('div'); group.className = 'form-group';
+            const caption = document.createElement('label'); caption.textContent = label; group.appendChild(caption);
+            const select = document.createElement('select'); select.className = 'form-control'; select.name = name; select.required = true;
+            for (let hour = first; hour <= last; hour++) {
+                const option = document.createElement('option'); option.value = String(hour); option.textContent = `${String(hour).padStart(2,'0')}:00`;
+                option.selected = hour === selected; select.appendChild(option);
+            }
+            group.appendChild(select); return group;
+        }
+        addAvailabilitySlot.addEventListener('click', () => {
+            const occupied = [...availabilitySlots.querySelectorAll('.availability-row')].map(row => ({
+                start: Number(row.querySelector('[name="availability_start[]"]').value),
+                end: Number(row.querySelector('[name="availability_end[]"]').value)
+            })).sort((a,b) => a.start-b.start);
+            let suggestedStart = 0;
+            for (const period of occupied) {
+                if (period.start - suggestedStart >= 2) break;
+                suggestedStart = Math.max(suggestedStart, period.end);
+            }
+            if (suggestedStart > 22) suggestedStart = 0;
+            const suggestedEnd = Math.min(24, suggestedStart + 2);
+            const row = document.createElement('div'); row.className = 'availability-row';
+            row.appendChild(makeHourSelect('availability_start[]',0,23,suggestedStart,'De'));
+            const separator = document.createElement('span'); separator.className = 'availability-separator'; separator.textContent = 'à'; row.appendChild(separator);
+            row.appendChild(makeHourSelect('availability_end[]',1,24,suggestedEnd,'À'));
+            const remove = document.createElement('button'); remove.type = 'button'; remove.className = 'remove-period'; remove.textContent = 'Supprimer'; remove.setAttribute('aria-label','Supprimer cette plage');
+            row.appendChild(remove); availabilitySlots.appendChild(row); refreshAvailabilityControls();
+        });
+        availabilitySlots.addEventListener('click', event => {
+            const button = event.target.closest('.remove-period');
+            if (button && !button.disabled) { button.closest('.availability-row').remove(); refreshAvailabilityControls(); }
+        });
+        refreshAvailabilityControls();
 
         const toggle = document.getElementById('toggleAvailability');
         const table = document.getElementById('calendarTable');

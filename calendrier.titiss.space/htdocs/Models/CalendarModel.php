@@ -52,6 +52,8 @@ class CalendarModel {
         } else {
             $globalId=(int)$globalRow['id'];
         }
+        $availabilityOwnerQuery=$this->pdo->query("SELECT user_id FROM calendars WHERE is_global=1 AND user_id IS NOT NULL ORDER BY id LIMIT 1");
+        $availabilityOwnerId=(int)($availabilityOwnerQuery->fetchColumn()?:$this->userId);
         $columns = $this->pdo->query("SHOW COLUMNS FROM activities LIKE 'calendar_id'")->fetch();
         if (!$columns) {
             $this->pdo->exec("ALTER TABLE activities ADD calendar_id INT NULL");
@@ -60,6 +62,29 @@ class CalendarModel {
             $this->pdo->exec("ALTER TABLE activities MODIFY calendar_id INT NOT NULL DEFAULT 1");
             $this->pdo->exec("ALTER TABLE activities ADD INDEX idx_activities_calendar (calendar_id)");
             $this->pdo->exec("ALTER TABLE activities ADD CONSTRAINT fk_activities_calendar FOREIGN KEY (calendar_id) REFERENCES calendars(id) ON DELETE CASCADE");
+        }
+        $this->pdo->exec("CREATE TABLE IF NOT EXISTS availability (
+            id INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+            start_hour INT NOT NULL,
+            end_hour INT NOT NULL,
+            user_id INT NULL,
+            KEY idx_availability_user (user_id),
+            CONSTRAINT fk_availability_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+        $availabilityOwner=$this->pdo->query("SHOW COLUMNS FROM availability LIKE 'user_id'")->fetch();
+        if(!$availabilityOwner){
+            $this->pdo->exec("ALTER TABLE availability ADD user_id INT NULL");
+            $this->pdo->exec("ALTER TABLE availability ADD INDEX idx_availability_user (user_id)");
+            $this->pdo->exec("ALTER TABLE availability ADD CONSTRAINT fk_availability_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE");
+        }
+        $claimAvailability=$this->pdo->prepare("UPDATE availability SET user_id=? WHERE user_id IS NULL");
+        $claimAvailability->execute([$availabilityOwnerId]);
+        if(($availabilityOwner['Null']??'YES')==='YES') $this->pdo->exec("ALTER TABLE availability MODIFY user_id INT NOT NULL");
+        $availabilityCount=$this->pdo->prepare("SELECT COUNT(*) FROM availability WHERE user_id=?");
+        $availabilityCount->execute([$this->userId]);
+        if((int)$availabilityCount->fetchColumn()===0){
+            $insert=$this->pdo->prepare("INSERT INTO availability(start_hour,end_hour,user_id) VALUES(?,?,?)");
+            $insert->execute([9,12,$this->userId]); $insert->execute([13,20,$this->userId]);
         }
     }
 
@@ -102,7 +127,20 @@ class CalendarModel {
             throw $e;
         }
     }
-    public function getAvailability(): array { return $this->pdo->query("SELECT start_hour AS start, end_hour AS end FROM availability")->fetchAll(); }
+    public function getAvailability(): array {
+        $stmt=$this->pdo->prepare("SELECT start_hour AS start, end_hour AS end FROM availability WHERE user_id=? ORDER BY start_hour");
+        $stmt->execute([$this->userId]); return $stmt->fetchAll();
+    }
+    public function saveAvailability(array $periods): void {
+        $this->pdo->beginTransaction();
+        try {
+            $delete=$this->pdo->prepare("DELETE FROM availability WHERE user_id=?");
+            $delete->execute([$this->userId]);
+            $insert=$this->pdo->prepare("INSERT INTO availability(start_hour,end_hour,user_id) VALUES(?,?,?)");
+            foreach($periods as $period) $insert->execute([(int)$period['start'],(int)$period['end'],$this->userId]);
+            $this->pdo->commit();
+        } catch(Throwable $e) { $this->pdo->rollBack(); throw $e; }
+    }
     public function getEvents(int $calendarId): array {
         $stmt=$this->pdo->prepare("SELECT * FROM activities WHERE calendar_id=? ORDER BY FIELD(day,'Lundi','Mardi','Mercredi','Jeudi','Vendredi','Samedi','Dimanche'), start_time"); $stmt->execute([$calendarId]); return $stmt->fetchAll();
     }

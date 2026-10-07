@@ -43,7 +43,23 @@ class CalendarController {
 
         if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $action = (string)($_POST['action'] ?? '');
-            if (in_array($action, ['create_calendar','update_calendar','duplicate_calendar'], true)) {
+            if ($action === 'save_availability') {
+                $starts=$_POST['availability_start']??[]; $ends=$_POST['availability_end']??[];
+                if (!is_array($starts) || !is_array($ends) || count($starts)<1 || count($starts)>8 || count($starts)!==count($ends)) {
+                    http_response_code(400); $errorMessage='Ajoutez entre 1 et 8 plages horaires.';
+                } else {
+                    $periods=[]; $valid=true;
+                    foreach($starts as $index=>$startValue){
+                        $endValue=$ends[$index]??null;
+                        if (!is_string($startValue) || !is_string($endValue) || !preg_match('/^(?:[0-9]|1[0-9]|2[0-3])$/',$startValue) || !preg_match('/^(?:[1-9]|1[0-9]|2[0-3]|24)$/',$endValue) || (int)$startValue >= (int)$endValue) { $valid=false; break; }
+                        $periods[]=['start'=>(int)$startValue,'end'=>(int)$endValue];
+                    }
+                    usort($periods,static fn($a,$b)=>$a['start']<=>$b['start']);
+                    for($i=1;$i<count($periods);$i++) if($periods[$i]['start']<$periods[$i-1]['end']) $valid=false;
+                    if(!$valid) { http_response_code(400); $errorMessage='Vérifiez les heures : chaque fin doit suivre son début et les plages ne doivent pas se chevaucher.'; }
+                    else { $model->saveAvailability($periods); $this->redirectToCalendar($calendarId); }
+                }
+            } elseif (in_array($action, ['create_calendar','update_calendar','duplicate_calendar'], true)) {
                 $name = trim((string)($_POST['name'] ?? ''));
                 $start = (string)($_POST['start_date'] ?? '');
                 $end = (string)($_POST['end_date'] ?? '');

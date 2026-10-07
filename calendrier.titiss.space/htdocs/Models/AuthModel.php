@@ -46,6 +46,10 @@ class AuthModel {
         $stmt=$this->pdo->prepare('SELECT id,name,email,password_hash FROM users WHERE email=? LIMIT 1');
         $stmt->execute([strtolower(trim($email))]); return $stmt->fetch()?:null;
     }
+    public function findUserById(int $id): ?array {
+        $stmt=$this->pdo->prepare('SELECT id,name,email,password_hash FROM users WHERE id=? LIMIT 1');
+        $stmt->execute([$id]); return $stmt->fetch()?:null;
+    }
     public function loginIsLimited(string $email): bool {
         $this->pdo->exec('DELETE FROM login_attempts WHERE created_at < NOW() - INTERVAL 1 DAY');
         $stmt=$this->pdo->prepare('SELECT

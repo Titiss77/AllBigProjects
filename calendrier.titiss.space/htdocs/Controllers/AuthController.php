@@ -5,10 +5,49 @@ require_once __DIR__.'/../Models/AuthModel.php';
 class AuthController {
     public function handle(): void {
         $mode=(string)($_GET['auth']??'login');
-        if (currentUser() && $mode!=='logout') { header('Location: index.php'); exit; }
+        if (currentUser() && !in_array($mode,['logout','password'],true)) { header('Location: index.php'); exit; }
         if ($mode==='logout') {
             if ($_SERVER['REQUEST_METHOD']!=='POST') { http_response_code(405); exit('Méthode non autorisée.'); }
             requireValidCsrf(); logoutUser(); header('Location: index.php?auth=login'); exit;
+        }
+        if ($mode==='password' && currentUser()) {
+            $model=new AuthModel();
+            $user=$model->findUserById((int)currentUser()['id']);
+            if (!$user) { logoutUser(); header('Location: index.php?auth=login'); exit; }
+            $errorMessage=''; $successMessage='';
+            if ($_SERVER['REQUEST_METHOD']==='POST') {
+                requireValidCsrf();
+                $currentPassword=(string)($_POST['current_password']??'');
+                $newPassword=(string)($_POST['new_password']??'');
+                $confirmation=(string)($_POST['password_confirmation']??'');
+                $newLength=preg_match_all('/./us',$newPassword,$matches)?:0;
+                $algorithm=defined('PASSWORD_ARGON2ID')?PASSWORD_ARGON2ID:PASSWORD_DEFAULT;
+                $maxPasswordBytes=$algorithm===PASSWORD_DEFAULT && PASSWORD_DEFAULT===PASSWORD_BCRYPT?72:1024;
+                if (strlen($currentPassword)>1024 || strlen($newPassword)>1024 || strlen($confirmation)>1024) {
+                    $errorMessage='Les mots de passe saisis sont trop longs.';
+                } elseif ($model->loginIsLimited($user['email'])) {
+                    $errorMessage='Trop de tentatives. Réessayez dans quelques minutes.';
+                } elseif (!password_verify($currentPassword,$user['password_hash'])) {
+                    $model->recordFailedLogin($user['email']);
+                    $errorMessage='Le mot de passe actuel est incorrect.';
+                } elseif ($newLength<12 || strlen($newPassword)>$maxPasswordBytes) {
+                    $errorMessage='Le nouveau mot de passe doit contenir au moins 12 caractères.';
+                } elseif ($newPassword!==$confirmation) {
+                    $errorMessage='La confirmation du nouveau mot de passe ne correspond pas.';
+                } elseif (hash_equals($currentPassword,$newPassword)) {
+                    $errorMessage='Choisissez un mot de passe différent de l’actuel.';
+                } else {
+                    $model->updatePasswordHash((int)$user['id'],password_hash($newPassword,$algorithm));
+                    $model->clearLoginAttempts($user['email']);
+                    session_regenerate_id(true);
+                    $_SESSION['csrf_token']=bin2hex(random_bytes(32));
+                    $_SESSION['created_at']=time();
+                    $_SESSION['last_activity']=time();
+                    $successMessage='Votre mot de passe a été modifié.';
+                }
+            }
+            require __DIR__.'/../Views/password_view.php';
+            return;
         }
         if (!in_array($mode,['login','register'],true)) $mode='login';
         $errorMessage='';
