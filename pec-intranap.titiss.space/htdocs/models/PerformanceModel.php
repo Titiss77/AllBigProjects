@@ -1,4 +1,5 @@
 <?php
+
 class PerformanceModel
 {
     private $pdo;
@@ -9,207 +10,693 @@ class PerformanceModel
     }
 
     /**
-     * Lit le fichier JSON en mémoire
-     */
-    private function getPerformancesFromJson()
-    {
-        $file = __DIR__ . '/../perfs/performances.json';
-        if (!file_exists($file)) {
-            return [];
-        }
-
-        $decoded = json_decode(file_get_contents($file), true) ?: [];
-
-        // Détection de la structure d'export phpMyAdmin
-        foreach ($decoded as $item) {
-            if (isset($item['type']) && $item['type'] === 'table' && isset($item['name']) && $item['name'] === 'performances') {
-                return isset($item['data']) ? $item['data'] : [];
-            }
-        }
-
-        // Retour par défaut (dans le cas où le JSON est un tableau plat standard)
-        return $decoded;
-    }
-
-    /**
-     * Convertit un temps MM:SS en secondes pour permettre le tri
+     * Convertit un temps en secondes.
      */
     private function timeToSeconds($timeStr)
     {
-        if (strpos($timeStr, ':') !== false) {
-            $parts = explode(':', str_replace(',', '.', $timeStr));
-            if (count($parts) === 2) {
-                return ($parts[0] * 60) + (float)$parts[1];
+        if (
+            $timeStr === null ||
+            $timeStr === ''
+        ) {
+            return PHP_FLOAT_MAX;
+        }
+
+        $timeStr = (string)$timeStr;
+
+        if (
+            strpos(
+                $timeStr,
+                ':'
+            ) !== false
+        ) {
+
+            $parts = explode(
+                ':',
+                str_replace(
+                    ',',
+                    '.',
+                    $timeStr
+                )
+            );
+
+            if (
+                count($parts) === 2
+            ) {
+                return
+                    ($parts[0] * 60) +
+                    (float)$parts[1];
             }
         }
-        return (float)str_replace(',', '.', $timeStr);
+
+        return (float)str_replace(
+            ',',
+            '.',
+            $timeStr
+        );
     }
 
+    /**
+     * Retourne les saisons disponibles.
+     */
     public function getSaisons()
     {
-        $perfs = $this->getPerformancesFromJson();
-        $saisons = array_unique(array_column($perfs, 'saison'));
-        rsort($saisons);
-        return $saisons;
+        $stmt =
+            $this->pdo->query(
+                'SELECT nom_saison
+                 FROM saisons
+                 ORDER BY nom_saison DESC'
+            );
+
+        return $stmt->fetchAll(
+            PDO::FETCH_COLUMN
+        );
     }
 
+    /**
+     * Retourne la meilleure performance
+     * de chaque nageur pour chaque épreuve.
+     */
     public function getPerformances($saison)
     {
-        $perfs = $this->getPerformancesFromJson();
+        $nageurs =
+            $this->pdo
+                ->query(
+                    'SELECT * FROM nageurs'
+                )
+                ->fetchAll(
+                    PDO::FETCH_ASSOC
+                );
 
-        // Chargement des référentiels (DB)
-        $nageurs = $this->pdo->query('SELECT * FROM nageurs')->fetchAll(PDO::FETCH_ASSOC);
-        $nageursById = array_column($nageurs, null, 'id');
+        $nageursById =
+            array_column(
+                $nageurs,
+                null,
+                'id'
+            );
 
-        $categories = $this->pdo->query('SELECT * FROM categories')->fetchAll(PDO::FETCH_ASSOC);
-        $categoriesById = array_column($categories, null, 'id');
+        $categories =
+            $this->pdo
+                ->query(
+                    'SELECT * FROM categories'
+                )
+                ->fetchAll(
+                    PDO::FETCH_ASSOC
+                );
 
-        $epreuves = $this->pdo->query('SELECT * FROM epreuves')->fetchAll(PDO::FETCH_ASSOC);
-        $epreuvesById = array_column($epreuves, null, 'id');
+        $categoriesById =
+            array_column(
+                $categories,
+                null,
+                'id'
+            );
 
-        $lieux = $this->pdo->query('SELECT * FROM lieux')->fetchAll(PDO::FETCH_ASSOC);
-        $lieuxById = array_column($lieux, null, 'id');
+        $epreuves =
+            $this->pdo
+                ->query(
+                    'SELECT * FROM epreuves'
+                )
+                ->fetchAll(
+                    PDO::FETCH_ASSOC
+                );
 
-        // Filtrage par saison
-        $filtered = [];
-        foreach ($perfs as $p) {
-            if ('all' !== $saison && $p['saison'] != $saison) {
+        $epreuvesById =
+            array_column(
+                $epreuves,
+                null,
+                'id'
+            );
+
+        $lieux =
+            $this->pdo
+                ->query(
+                    'SELECT * FROM lieux'
+                )
+                ->fetchAll(
+                    PDO::FETCH_ASSOC
+                );
+
+        $lieuxById =
+            array_column(
+                $lieux,
+                null,
+                'id'
+            );
+
+        if (
+            $saison === 'all'
+        ) {
+
+            $stmt =
+                $this->pdo->query(
+                    'SELECT p.*, s.nom_saison AS saison
+                     FROM performances p
+                     JOIN saisons s ON s.id = p.saison_id'
+                );
+
+        } else {
+
+            $stmt =
+                $this->pdo->prepare(
+                    'SELECT p.*, s.nom_saison AS saison
+                     FROM performances p
+                     JOIN saisons s ON s.id = p.saison_id
+                     WHERE s.nom_saison = ?'
+                );
+
+            $stmt->execute([
+                $saison
+            ]);
+        }
+
+        $filtered =
+            $stmt->fetchAll(
+                PDO::FETCH_ASSOC
+            );
+
+        /*
+         * Recherche du meilleur temps
+         * de chaque nageur pour chaque épreuve.
+         */
+        $best_times = [];
+
+        foreach (
+            $filtered as $p
+        ) {
+
+            $nid =
+                $p['nageur_id'];
+
+            $eid =
+                $p['epreuve_id'];
+
+            $key =
+                $nid . '-' . $eid;
+
+            $sec =
+                $this->timeToSeconds(
+                    $p['temps']
+                );
+
+            if (
+                !isset(
+                    $best_times[$key]
+                ) ||
+                $sec <
+                $best_times[$key]['sec']
+            ) {
+
+                $best_times[$key] = [
+                    'sec' => $sec,
+                    'id' => $p['id']
+                ];
+            }
+        }
+
+        $result = [];
+
+        foreach (
+            $filtered as $p
+        ) {
+
+            $nid =
+                $p['nageur_id'];
+
+            $eid =
+                $p['epreuve_id'];
+
+            $key =
+                $nid . '-' . $eid;
+
+            if (
+                !isset(
+                    $best_times[$key]
+                ) ||
+                (int)$p['id'] !==
+                (int)$best_times[$key]['id']
+            ) {
                 continue;
             }
-            $filtered[] = $p;
+
+            $cid =
+                $p['categorie_id'];
+
+            $lid =
+                $p['lieu_id'];
+
+            $result[] = [
+
+                'nageur_id' =>
+                    $nid,
+
+                'nom' =>
+                    isset(
+                        $nageursById[$nid]
+                    )
+                        ? $nageursById[$nid]['nom']
+                        : 'NC',
+
+                'prenom' =>
+                    isset(
+                        $nageursById[$nid]
+                    )
+                        ? $nageursById[$nid]['prenom']
+                        : 'NC',
+
+                'date_naissance' =>
+                    isset(
+                        $nageursById[$nid]
+                    )
+                        ? $nageursById[$nid]['date_naissance']
+                        : null,
+
+                'categorie' =>
+                    isset(
+                        $categoriesById[$cid]
+                    )
+                        ? $categoriesById[$cid]['nom_categorie']
+                        : 'NC',
+
+                'categorie_libelle' =>
+                    isset(
+                        $categoriesById[$cid]
+                    )
+                        ? $categoriesById[$cid]['libelle']
+                        : 'NC',
+
+                'epreuve' =>
+                    isset(
+                        $epreuvesById[$eid]
+                    )
+                        ? $epreuvesById[$eid]['nom_epreuve']
+                        : 'NC',
+
+                'temps' =>
+                    $p['temps'],
+
+                'date_perf' =>
+                    $p['date_perf'],
+
+                'lieu' =>
+                    isset(
+                        $lieuxById[$lid]
+                    )
+                        ? $lieuxById[$lid]['nom_lieu']
+                        : 'NC'
+            ];
         }
 
-        // Groupement pour trouver le meilleur temps par nageur et épreuve
-        $best_times = [];
-        foreach ($filtered as $p) {
-            $nid = $p['nageur_id'];
-            $eid = $p['epreuve_id'];
-            $key = "$nid-$eid";
-            $sec = $this->timeToSeconds($p['temps']);
+        /*
+         * Tri par épreuve puis par temps.
+         */
+        usort(
+            $result,
+            function ($a, $b) {
 
-            if (!isset($best_times[$key]) || $sec < $best_times[$key]['sec']) {
-                $best_times[$key] = ['sec' => $sec, 'temps' => $p['temps']];
-            }
-        }
+                $cmp = strcmp(
+                    (string)(
+                        $a['epreuve'] ?? ''
+                    ),
+                    (string)(
+                        $b['epreuve'] ?? ''
+                    )
+                );
 
-        // Reconstruction des résultats
-        $result = [];
-        $added = []; // Éviter les doublons si le nageur a exactement le même meilleur temps sur deux perfs différentes
+                if (
+                    $cmp === 0
+                ) {
 
-        foreach ($filtered as $p) {
-            $nid = $p['nageur_id'];
-            $eid = $p['epreuve_id'];
-            $cid = $p['categorie_id'];
-            $lid = $p['lieu_id'];
-            $key = "$nid-$eid";
-
-            if ($p['temps'] === $best_times[$key]['temps']) {
-                $unique_key = "$key-{$p['temps']}";
-                if (!isset($added[$unique_key])) {
-                    $result[] = [
-                        'nageur_id' => $nid,
-                        'nom' => isset($nageursById[$nid]) ? $nageursById[$nid]['nom'] : 'NC',
-                        'prenom' => isset($nageursById[$nid]) ? $nageursById[$nid]['prenom'] : 'NC',
-                        'date_naissance' => isset($nageursById[$nid]) ? $nageursById[$nid]['date_naissance'] : null,
-                        'categorie' => isset($categoriesById[$cid]) ? $categoriesById[$cid]['nom_categorie'] : 'NC',
-                        'categorie_libelle' => isset($categoriesById[$cid]) ? $categoriesById[$cid]['libelle'] : 'NC',
-                        'epreuve' => isset($epreuvesById[$eid]) ? $epreuvesById[$eid]['nom_epreuve'] : 'NC',
-                        'temps' => $p['temps'],
-                        'date_perf' => $p['date_perf'],
-                        'classement' => $p['classement'],
-                        'lieu' => isset($lieuxById[$lid]) ? $lieuxById[$lid]['nom_lieu'] : 'NC',
-                    ];
-                    $added[$unique_key] = true;
+                    return
+                        $this->timeToSeconds(
+                            $a['temps']
+                        )
+                        <=>
+                        $this->timeToSeconds(
+                            $b['temps']
+                        );
                 }
-            }
-        }
 
-        // Tri équivalent SQL (ORDER BY epreuve ASC, p1.temps ASC)
-        usort($result, function ($a, $b) {
-            $cmp = strcmp($a['epreuve'], $b['epreuve']);
-            if (0 === $cmp) {
-                return $this->timeToSeconds($a['temps']) <=> $this->timeToSeconds($b['temps']);
+                return $cmp;
             }
-            return $cmp;
-        });
+        );
 
         return $result;
     }
 
-    public function getHistorique($nageur_id, $epreuve)
-    {
-        $perfs = $this->getPerformancesFromJson();
+    /**
+     * Retourne toutes les performances
+     * d'un nageur pour une épreuve.
+     */
+    public function getHistorique(
+        $nageur_id,
+        $epreuve
+    ) {
 
-        $epreuves = $this->pdo->query('SELECT * FROM epreuves')->fetchAll(PDO::FETCH_ASSOC);
-        $epreuvesById = array_column($epreuves, null, 'id');
+        $stmtEpreuve =
+            $this->pdo->prepare(
+                'SELECT id
+                 FROM epreuves
+                 WHERE nom_epreuve = ?
+                 LIMIT 1'
+            );
 
-        $lieux = $this->pdo->query('SELECT * FROM lieux')->fetchAll(PDO::FETCH_ASSOC);
-        $lieuxById = array_column($lieux, null, 'id');
+        $stmtEpreuve->execute([
+            $epreuve
+        ]);
+
+        $epreuve_id =
+            $stmtEpreuve->fetchColumn();
+
+        if (
+            !$epreuve_id
+        ) {
+            return [];
+        }
+
+        $stmt =
+            $this->pdo->prepare(
+                'SELECT
+                    p.id,
+                    p.temps,
+                    p.date_perf,
+                    s.nom_saison AS saison,
+                    l.nom_lieu AS lieu
+                 FROM performances p
+                 JOIN saisons s
+                    ON p.saison_id = s.id
+                 LEFT JOIN lieux l
+                    ON p.lieu_id = l.id
+                 WHERE p.nageur_id = ?
+                   AND p.epreuve_id = ?
+                 ORDER BY p.date_perf ASC, p.id ASC'
+            );
+
+        $stmt->execute([
+            $nageur_id,
+            $epreuve_id
+        ]);
+
+        $rows =
+            $stmt->fetchAll(
+                PDO::FETCH_ASSOC
+            );
 
         $result = [];
-        foreach ($perfs as $p) {
-            if ($p['nageur_id'] == $nageur_id) {
-                $eid = $p['epreuve_id'];
-                $lid = $p['lieu_id'];
-                if (isset($epreuvesById[$eid]) && $epreuvesById[$eid]['nom_epreuve'] === $epreuve) {
-                    $result[] = [
-                        'temps' => $p['temps'],
-                        'date_perf' => $p['date_perf'],
-                        'lieu' => isset($lieuxById[$lid]) ? $lieuxById[$lid]['nom_lieu'] : 'NC',
-                    ];
-                }
-            }
+
+        foreach (
+            $rows as $p
+        ) {
+
+            $result[] = [
+
+                'temps' =>
+                    $p['temps'],
+
+                'date_perf' =>
+                    $p['date_perf'],
+
+                'lieu' =>
+                    !empty(
+                        $p['lieu']
+                    )
+                        ? $p['lieu']
+                        : 'NC',
+
+                'saison' =>
+                    $p['saison']
+            ];
         }
+
+        usort(
+            $result,
+            function ($a, $b) {
+
+                $dateA =
+                    $this->dateToTimestamp(
+                        $a['date_perf']
+                    );
+
+                $dateB =
+                    $this->dateToTimestamp(
+                        $b['date_perf']
+                    );
+
+                if (
+                    $dateA === $dateB
+                ) {
+                    return 0;
+                }
+
+                return $dateA <=> $dateB;
+            }
+        );
+
         return $result;
     }
 
+    /**
+     * Convertit différents formats
+     * de date en timestamp.
+     */
+    private function dateToTimestamp(
+        $date
+    ) {
+        $date =
+            trim(
+                (string)$date
+            );
+
+        if (
+            $date === ''
+        ) {
+            return 0;
+        }
+
+        if (
+            preg_match(
+                '/^\d{4}-\d{2}-\d{2}$/',
+                $date
+            )
+        ) {
+
+            $timestamp =
+                strtotime($date);
+
+            return
+                $timestamp !== false
+                    ? $timestamp
+                    : 0;
+        }
+
+        if (
+            preg_match(
+                '/^(\d{2})\/(\d{2})\/(\d{4})$/',
+                $date,
+                $matches
+            )
+        ) {
+
+            return mktime(
+                0,
+                0,
+                0,
+                (int)$matches[2],
+                (int)$matches[1],
+                (int)$matches[3]
+            );
+        }
+
+        $timestamp =
+            strtotime($date);
+
+        return
+            $timestamp !== false
+                ? $timestamp
+                : 0;
+    }
+
+    /**
+     * Retourne les catégories actuelles
+     * des nageurs.
+     */
     public function getCategoriesActuelles()
     {
-        $perfs = $this->getPerformancesFromJson();
-        $categories = $this->pdo->query('SELECT * FROM categories')->fetchAll(PDO::FETCH_ASSOC);
-        $categoriesById = array_column($categories, null, 'id');
+        $stmt =
+            $this->pdo->query(
+                'SELECT
+                    p.nageur_id,
+                    p.saison_id,
+                    p.categorie_id
+                 FROM performances p
+                 INNER JOIN (
+                     SELECT
+                        nageur_id,
+                        MAX(saison_id) AS derniere_saison_id
+                     FROM performances
+                     GROUP BY nageur_id
+                 ) derniere
+                    ON derniere.nageur_id = p.nageur_id
+                    AND derniere.derniere_saison_id = p.saison_id
+                 GROUP BY
+                    p.nageur_id,
+                    p.saison_id,
+                    p.categorie_id'
+            );
 
-        $max_saisons = [];
-        foreach ($perfs as $p) {
-            $nid = $p['nageur_id'];
-            if (!isset($max_saisons[$nid]) || $p['saison'] > $max_saisons[$nid]['saison']) {
-                $max_saisons[$nid] = [
-                    'saison' => $p['saison'],
-                    'categorie_id' => $p['categorie_id'],
-                ];
-            }
-        }
+        $rows =
+            $stmt->fetchAll(
+                PDO::FETCH_ASSOC
+            );
+
+        $categories =
+            $this->pdo
+                ->query(
+                    'SELECT * FROM categories'
+                )
+                ->fetchAll(
+                    PDO::FETCH_ASSOC
+                );
+
+        $categoriesById =
+            array_column(
+                $categories,
+                null,
+                'id'
+            );
 
         $result = [];
-        foreach ($max_saisons as $nid => $data) {
-            $cid = $data['categorie_id'];
-            if (isset($categoriesById[$cid])) {
-                $result[$nid] = [
-                    'nom_categorie' => $categoriesById[$cid]['nom_categorie'],
-                    'libelle' => $categoriesById[$cid]['libelle'],
-                ];
+
+        foreach (
+            $rows as $row
+        ) {
+
+            $nid =
+                $row['nageur_id'];
+
+            $cid =
+                $row['categorie_id'];
+
+            if (
+                !isset(
+                    $categoriesById[$cid]
+                )
+            ) {
+                continue;
             }
+
+            $result[$nid] = [
+
+                'nom_categorie' =>
+                    $categoriesById[$cid]['nom_categorie'],
+
+                'libelle' =>
+                    $categoriesById[$cid]['libelle']
+            ];
         }
 
-        uasort($result, function ($a, $b) {
-            return strcmp($b['libelle'], $a['libelle']);
-        });
+        uasort(
+            $result,
+            function ($a, $b) {
+
+                return strcmp(
+                    (string)(
+                        $b['libelle'] ?? ''
+                    ),
+                    (string)(
+                        $a['libelle'] ?? ''
+                    )
+                );
+            }
+        );
 
         return $result;
     }
 
-    public function getGrilleQualifs()
+    /**
+     * Retourne la grille des qualifications.
+     *
+     * temps_de_ref :
+     * - non NULL => qualification au temps
+     *
+     * position :
+     * - non NULL => qualification à la position
+     *   dans le classement temporairement calculé
+     *
+     * Les deux peuvent exister, mais le temps de référence
+     * est prioritaire.
+     */
+    public function getGrilleQualifs($saison_prioritaire = null)
     {
-        // Reste en SQL car il n'utilise pas la table performances
-        $sql = 'SELECT c.nom_categorie, e.nom_epreuve, g.temps_de_ref
-                FROM grille_qualifs g
-                JOIN categories c ON g.categorie_id = c.id
-                JOIN epreuves e ON g.epreuve_id = e.id';
-        $stmt = $this->pdo->query($sql);
+        $sql =
+            'SELECT
+                g.saison_id,
+                s.nom_saison AS saison,
+                c.nom_categorie,
+                e.nom_epreuve,
+                g.temps_de_ref,
+                g.position
+             FROM grille_qualifs g
+             JOIN saisons s
+                ON g.saison_id = s.id
+             JOIN categories c
+                ON g.categorie_id = c.id
+             JOIN epreuves e
+                ON g.epreuve_id = e.id
+             ORDER BY s.nom_saison DESC, g.id DESC';
+
+        $stmt =
+            $this->pdo->query($sql);
+
         $result = [];
-        while ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
-            $result[$row['nom_categorie']][$row['nom_epreuve']] = $row['temps_de_ref'];
+
+        $priorite_saison = [];
+
+        while (
+            $row =
+                $stmt->fetch(
+                    PDO::FETCH_ASSOC
+                )
+        ) {
+
+            $key = $row['nom_categorie'] . '|' . $row['nom_epreuve'];
+            $saison = (string)$row['saison'];
+            $prioritaire = $saison_prioritaire !== null && $saison === (string)$saison_prioritaire;
+
+            // Never apply a rule from a future season to an older selection.
+            if (
+                $saison_prioritaire !== null &&
+                strcmp($saison, (string)$saison_prioritaire) > 0
+            ) {
+                continue;
+            }
+
+            $a_temps = $row['temps_de_ref'] !== null && $row['temps_de_ref'] !== '';
+            $a_position = $row['position'] !== null && (int)$row['position'] > 0;
+
+            // Ignore empty rules so they cannot hide the latest usable rule.
+            if (!$a_temps && !$a_position) {
+                continue;
+            }
+
+            if (isset($priorite_saison[$key])) {
+                $ancienne_priorite = $priorite_saison[$key];
+                if ($ancienne_priorite === true || (!$prioritaire && strcmp($saison, $ancienne_priorite) <= 0)) {
+                    continue;
+                }
+            }
+
+            $result[$row['nom_categorie']][$row['nom_epreuve']] = [
+
+                'temps_de_ref' =>
+                    $row['temps_de_ref'],
+
+                'position' =>
+                    $row['position'] !== null
+                        ? (int)$row['position']
+                        : null
+            ];
+            $priorite_saison[$key] = $prioritaire ? true : $saison;
         }
+
         return $result;
     }
 }

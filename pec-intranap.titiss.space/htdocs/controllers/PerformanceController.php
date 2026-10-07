@@ -1,248 +1,1042 @@
 <?php
 
-require_once __DIR__.'/../config/Database.php';
-
-require_once __DIR__.'/../models/PerformanceModel.php';
+require_once __DIR__ . '/../config/Database.php';
+require_once __DIR__ . '/../models/PerformanceModel.php';
 
 class PerformanceController
 {
+    /**
+     * Retourne la saison sportive actuelle.
+     *
+     * Septembre 2026 -> 2026-2027
+     * Janvier 2027   -> 2026-2027
+     */
+    private function getCurrentSeason()
+    {
+        $annee = (int)date('Y');
+        $mois = (int)date('n');
+
+        $anneeDebut =
+            $mois >= 9
+                ? $annee
+                : $annee - 1;
+
+        return
+            $anneeDebut .
+            '-' .
+            ($anneeDebut + 1);
+    }
+
+    /**
+     * Calcule les positions temporaires par :
+     *
+     * - épreuve
+     * - catégorie
+     *
+     * La position n'est jamais enregistrée en BDD.
+     *
+     * Une égalité de temps donne la même position.
+     *
+     * Exemple :
+     *
+     * 00:20.00 -> 1
+     * 00:21.00 -> 2
+     * 00:21.00 -> 2
+     * 00:22.00 -> 4
+     */
+    private function calculateQualificationPositions(
+        $lignes_bdd
+    ) {
+        $groupes = [];
+
+        foreach (
+            $lignes_bdd as $ligne
+        ) {
+
+            $categorie =
+                $ligne['categorie'];
+
+            $epreuve =
+                $ligne['epreuve'];
+
+            $key =
+                $categorie .
+                '|' .
+                $epreuve;
+
+            if (
+                !isset(
+                    $groupes[$key]
+                )
+            ) {
+                $groupes[$key] = [];
+            }
+
+            $groupes[$key][] = $ligne;
+        }
+
+        $positions = [];
+
+        foreach (
+            $groupes as $key => $nageurs
+        ) {
+
+            usort(
+                $nageurs,
+                function ($a, $b) {
+
+                    $tempsA =
+                        $this->timeToSeconds(
+                            $a['temps']
+                        );
+
+                    $tempsB =
+                        $this->timeToSeconds(
+                            $b['temps']
+                        );
+
+                    if (
+                        $tempsA ===
+                        $tempsB
+                    ) {
+                        return 0;
+                    }
+
+                    return
+                        $tempsA <=>
+                        $tempsB;
+                }
+            );
+
+            $position = 0;
+            $temps_precedent = null;
+
+            foreach (
+                $nageurs as $index => $nageur
+            ) {
+
+                $temps_actuel =
+                    $this->timeToSeconds(
+                        $nageur['temps']
+                    );
+
+                /*
+                 * Même temps = même position.
+                 */
+                if (
+                    $temps_precedent === null ||
+                    $temps_actuel !==
+                    $temps_precedent
+                ) {
+
+                    $position =
+                        $index + 1;
+                }
+
+                $positions[
+                    $nageur['nageur_id'] .
+                    '|' .
+                    $nageur['epreuve']
+                ] = $position;
+
+                $temps_precedent =
+                    $temps_actuel;
+            }
+        }
+
+        return $positions;
+    }
+
+    /**
+     * Détermine si une performance est qualifiante.
+     *
+     * Règle :
+     *
+     * 1. Si un temps de référence ou une position existe,
+     *    l'un ou l'autre critère suffit.
+     *
+     * 3. Sinon :
+     *    pas de qualification définie.
+     */
+    private function isQualified(
+        $categorie,
+        $epreuve,
+        $temps,
+        $position,
+        $grille_qualifs
+    ) {
+
+        if (
+            !isset(
+                $grille_qualifs[
+                    $categorie
+                ][
+                    $epreuve
+                ]
+            )
+        ) {
+            return null;
+        }
+
+        $regle =
+            $grille_qualifs[
+                $categorie
+            ][
+                $epreuve
+            ];
+
+        $a_temps_de_ref =
+            $regle['temps_de_ref'] !== null &&
+            $regle['temps_de_ref'] !== '';
+
+        $a_position =
+            $regle['position'] !== null &&
+            $regle['position'] > 0;
+
+        if (!$a_temps_de_ref && !$a_position) {
+            return null;
+        }
+
+        $qualifie_au_temps =
+            $a_temps_de_ref &&
+            $this->timeToSeconds($temps) <=
+                $this->timeToSeconds($regle['temps_de_ref']);
+
+        $qualifie_a_la_position =
+            $a_position &&
+            $position !== null &&
+            $position <= (int)$regle['position'];
+
+        return $qualifie_au_temps || $qualifie_a_la_position;
+    }
+
     public function index()
     {
         $pdo = Database::getConnection();
-        $model = new PerformanceModel($pdo);
 
-        $annees_disponibles = $model->getSaisons();
-        $annee_selectionnee = isset($_GET['saison']) ? $_GET['saison'] : 'all';
+        $model =
+            new PerformanceModel($pdo);
 
-        $lignes_bdd = $model->getPerformances($annee_selectionnee);
-        $grille_qualifs = $model->getGrilleQualifs();
+        $saisons_disponibles =
+            $model->getSaisons();
+
+        $saison_selectionnee =
+            isset($_GET['saison'])
+                ? $_GET['saison']
+                : 'all';
+
+        $lignes_bdd =
+            $model->getPerformances(
+                $saison_selectionnee
+            );
+
+        $grille_qualifs =
+            $model->getGrilleQualifs(
+                $saison_selectionnee === 'all'
+                    ? $this->getCurrentSeason()
+                    : $saison_selectionnee
+            );
+
+        /*
+         * ------------------------------------------------------------
+         * POSITIONS TEMPORAIRES
+         * ------------------------------------------------------------
+         *
+         * Elles servent uniquement aux qualifications.
+         *
+         * Aucun classement n'est sauvegardé.
+         */
+        $positions_qualification =
+            $this->calculateQualificationPositions(
+                $lignes_bdd
+            );
 
         $categories_actuelles = [];
-        if ('all' === $annee_selectionnee) {
-            $categories_actuelles = $model->getCategoriesActuelles();
+
+        if (
+            'all' ===
+            $saison_selectionnee
+        ) {
+
+            $categories_actuelles =
+                $model->getCategoriesActuelles();
         }
 
         $profils_nageurs = [];
         $epreuves_trouvees = [];
         $categories_disponibles = [];
-        $performances_par_epreuve = []; // NOUVEAU: Pour l'affichage façon FFESSM
+        $performances_par_epreuve = [];
 
-        if (!empty($lignes_bdd)) {
-            foreach ($lignes_bdd as $ligne) {
-                $nageur_id = $ligne['nageur_id'];
+        if (
+            !empty($lignes_bdd)
+        ) {
 
-                if ('all' === $annee_selectionnee && isset($categories_actuelles[$nageur_id])) {
-                    $categorie_a_afficher = $categories_actuelles[$nageur_id]['nom_categorie'];
-                    $libelle_a_afficher = $categories_actuelles[$nageur_id]['libelle'];
+            foreach (
+                $lignes_bdd as $ligne
+            ) {
+
+                $nageur_id =
+                    $ligne['nageur_id'];
+
+                if (
+                    'all' ===
+                    $saison_selectionnee &&
+                    isset(
+                        $categories_actuelles[
+                            $nageur_id
+                        ]
+                    )
+                ) {
+
+                    $categorie_a_afficher =
+                        $categories_actuelles[
+                            $nageur_id
+                        ]['nom_categorie'];
+
+                    $libelle_a_afficher =
+                        $categories_actuelles[
+                            $nageur_id
+                        ]['libelle'];
+
                 } else {
-                    $categorie_a_afficher = $ligne['categorie'];
-                    $libelle_a_afficher = $ligne['categorie_libelle'].' (en '.$annee_selectionnee.')';
+
+                    $categorie_a_afficher =
+                        $ligne['categorie'];
+
+                    $libelle_a_afficher =
+                        $ligne['categorie_libelle'] .
+                        ' (en ' .
+                        $saison_selectionnee .
+                        ')';
                 }
 
-                if (!isset($categories_disponibles[$categorie_a_afficher])) {
-                    $categories_disponibles[$categorie_a_afficher] = $libelle_a_afficher;
+                if (
+                    !isset(
+                        $categories_disponibles[
+                            $categorie_a_afficher
+                        ]
+                    )
+                ) {
+
+                    $categories_disponibles[
+                        $categorie_a_afficher
+                    ] =
+                        $libelle_a_afficher;
                 }
 
-                if (!isset($profils_nageurs[$nageur_id])) {
-                    $profils_nageurs[$nageur_id] = [
-                        'nageur_id' => $nageur_id,
-                        'nom' => $ligne['nom'],
-                        'prenom' => $ligne['prenom'],
-                        'categorie' => $categorie_a_afficher,
-                        'categorie_libelle' => $libelle_a_afficher,
-                        'chronos' => [],
+                if (
+                    !isset(
+                        $profils_nageurs[
+                            $nageur_id
+                        ]
+                    )
+                ) {
+
+                    $profils_nageurs[
+                        $nageur_id
+                    ] = [
+
+                        'nageur_id' =>
+                            $nageur_id,
+
+                        'nom' =>
+                            $ligne['nom'],
+
+                        'prenom' =>
+                            $ligne['prenom'],
+
+                        'categorie' =>
+                            $categorie_a_afficher,
+
+                        'categorie_libelle' =>
+                            $libelle_a_afficher,
+
+                        'chronos' => []
                     ];
                 }
 
-                $temps_nageur = $ligne['temps'];
-                $est_qualifie = null;
+                $temps_nageur =
+                    $ligne['temps'];
 
-                if (isset($grille_qualifs[$categorie_a_afficher][$ligne['epreuve']])) {
-                    $temps_ref = $grille_qualifs[$categorie_a_afficher][$ligne['epreuve']];
-                    $sec_nageur = $this->timeToSeconds($temps_nageur);
-                    $sec_ref = $this->timeToSeconds($temps_ref);
-                    $est_qualifie = ($sec_nageur <= $sec_ref);
-                } elseif (in_array($categorie_a_afficher, ['FCA', 'HCA']) && !empty($ligne['classement'])) {
-                    $est_qualifie = ((int) $ligne['classement'] <= 16);
-                } elseif (in_array($categorie_a_afficher, ['FMI', 'HMI']) && !empty($ligne['classement'])) {
-                    $est_qualifie = ((int) $ligne['classement'] <= 32);
+                /*
+                 * Position temporaire.
+                 *
+                 * Elle est utilisée uniquement
+                 * pour la qualification.
+                 */
+                $position =
+                    null;
+
+                $position_key =
+                    $nageur_id .
+                    '|' .
+                    $ligne['epreuve'];
+
+                if (
+                    isset(
+                        $positions_qualification[
+                            $position_key
+                        ]
+                    )
+                ) {
+
+                    $position =
+                        $positions_qualification[
+                            $position_key
+                        ];
                 }
 
-                $profils_nageurs[$nageur_id]['chronos'][$ligne['epreuve']] = [
-                    'temps' => $temps_nageur,
-                    'date' => $ligne['date_perf'],
-                    'lieu' => $ligne['lieu'],
-                    'est_qualifie' => $est_qualifie,
-                    'classement' => $ligne['classement'],
+                $est_qualifie =
+                    $this->isQualified(
+                        $categorie_a_afficher,
+                        $ligne['epreuve'],
+                        $temps_nageur,
+                        $position,
+                        $grille_qualifs
+                    );
+
+                $profils_nageurs[
+                    $nageur_id
+                ]['chronos'][
+                    $ligne['epreuve']
+                ] = [
+
+                    'temps' =>
+                        $temps_nageur,
+
+                    'date' =>
+                        $ligne['date_perf'],
+
+                    'lieu' =>
+                        $ligne['lieu'],
+
+                    'est_qualifie' =>
+                        $est_qualifie
                 ];
 
-                if (!in_array($ligne['epreuve'], $epreuves_trouvees)) {
-                    $epreuves_trouvees[] = $ligne['epreuve'];
+                if (
+                    !in_array(
+                        $ligne['epreuve'],
+                        $epreuves_trouvees
+                    )
+                ) {
+
+                    $epreuves_trouvees[] =
+                        $ligne['epreuve'];
                 }
 
-                // NOUVEAU : Structuration par épreuve (déjà triée par temps grâce au SQL)
-                if (!isset($performances_par_epreuve[$ligne['epreuve']])) {
-                    $performances_par_epreuve[$ligne['epreuve']] = [];
+                if (
+                    !isset(
+                        $performances_par_epreuve[
+                            $ligne['epreuve']
+                        ]
+                    )
+                ) {
+
+                    $performances_par_epreuve[
+                        $ligne['epreuve']
+                    ] = [];
                 }
-                $performances_par_epreuve[$ligne['epreuve']][] = [
-                    'nageur_id' => $nageur_id,
-                    'nom' => $ligne['nom'],
-                    'prenom' => $ligne['prenom'],
-                    'categorie' => $categorie_a_afficher,
-                    'temps' => $temps_nageur,
-                    'date_perf' => $ligne['date_perf'],
-                    'lieu' => $ligne['lieu'],
-                    'est_qualifie' => $est_qualifie,
-                    'classement' => $ligne['classement'],
+
+                $performances_par_epreuve[
+                    $ligne['epreuve']
+                ][] = [
+
+                    'nageur_id' =>
+                        $nageur_id,
+
+                    'nom' =>
+                        $ligne['nom'],
+
+                    'prenom' =>
+                        $ligne['prenom'],
+
+                    'categorie' =>
+                        $categorie_a_afficher,
+
+                    'temps' =>
+                        $temps_nageur,
+
+                    'date_perf' =>
+                        $ligne['date_perf'],
+
+                    'lieu' =>
+                        $ligne['lieu'],
+
+                    'est_qualifie' =>
+                        $est_qualifie
                 ];
             }
         }
 
-        $ordre_categories_officiel = ['FPO', 'HPO', 'FBE', 'HBE', 'FMI', 'HMI', 'FCA', 'HCA', 'FJU', 'HJU', 'FSE', 'HSE', 'F35+', 'H35+', 'F45+', 'H45+', 'F55+', 'H55+'];
+        $ordre_categories_officiel = [
+            'FPO',
+            'HPO',
+            'FBE',
+            'HBE',
+            'FMI',
+            'HMI',
+            'FCA',
+            'HCA',
+            'FJU',
+            'HJU',
+            'FSE',
+            'HSE',
+            'F35+',
+            'H35+',
+            'F45+',
+            'H45+',
+            'F55+',
+            'H55+'
+        ];
+
         $categories_triees = [];
-        foreach ($ordre_categories_officiel as $code_cat) {
-            if (isset($categories_disponibles[$code_cat])) {
-                $categories_triees[$code_cat] = $categories_disponibles[$code_cat];
+
+        foreach (
+            $ordre_categories_officiel
+            as $code_cat
+        ) {
+
+            if (
+                isset(
+                    $categories_disponibles[
+                        $code_cat
+                    ]
+                )
+            ) {
+
+                $categories_triees[
+                    $code_cat
+                ] =
+                    $categories_disponibles[
+                        $code_cat
+                    ];
             }
         }
-        foreach ($categories_disponibles as $code_cat => $libelle) {
-            if (!isset($categories_triees[$code_cat])) {
-                $categories_triees[$code_cat] = $libelle;
+
+        foreach (
+            $categories_disponibles
+            as $code_cat => $libelle
+        ) {
+
+            if (
+                !isset(
+                    $categories_triees[
+                        $code_cat
+                    ]
+                )
+            ) {
+
+                $categories_triees[
+                    $code_cat
+                ] = $libelle;
             }
         }
-        $categories_disponibles = $categories_triees;
 
-        $ordre_officiel = ['25SF', '50SF', '100SF', '200SF', '400SF', '800SF', '1500SF', '1850SF', '25AP', '50AP', '100IS', '800IS', '200IS', '400IS', '50BI', '100BI', '200BI', '400BI'];
-        $colonnes_epreuves = array_intersect($ordre_officiel, $epreuves_trouvees);
+        $categories_disponibles =
+            $categories_triees;
 
-        $statistiques = ['total_nageurs' => count($profils_nageurs), 'total_performances' => 0, 'nageurs_qualifies' => [], 'total_qualifications' => 0, 'filles' => 0, 'garcons' => 0, 'podiums' => 0];
+        $ordre_officiel = [
+            '25SF',
+            '50SF',
+            '100SF',
+            '200SF',
+            '400SF',
+            '800SF',
+            '1500SF',
+            '1850SF',
+            '25AP',
+            '50AP',
+            '100IS',
+            '800IS',
+            '200IS',
+            '400IS',
+            '50BI',
+            '100BI',
+            '200BI',
+            '400BI'
+        ];
 
-        foreach ($profils_nageurs as $nageur_id => $infos) {
-            $est_qualifie_nageur = false;
+        $colonnes_epreuves =
+            array_intersect(
+                $ordre_officiel,
+                $epreuves_trouvees
+            );
+
+        $statistiques = [
+
+            'total_nageurs' =>
+                count(
+                    $profils_nageurs
+                ),
+
+            'total_performances' =>
+                0,
+
+            'nageurs_qualifies' =>
+                [],
+
+            'total_qualifications' =>
+                0,
+
+            'filles' =>
+                0,
+
+            'garcons' =>
+                0
+        ];
+
+        foreach (
+            $profils_nageurs
+            as $nageur_id => $infos
+        ) {
+
+            $est_qualifie_nageur =
+                false;
+
             $epreuves_qualif = [];
-            $premiere_lettre = substr($infos['categorie'], 0, 1);
-            if ('F' === $premiere_lettre) {
+
+            $premiere_lettre =
+                substr(
+                    $infos['categorie'],
+                    0,
+                    1
+                );
+
+            if (
+                'F' ===
+                $premiere_lettre
+            ) {
+
                 ++$statistiques['filles'];
-            } elseif ('H' === $premiere_lettre) {
+
+            } elseif (
+                'H' ===
+                $premiere_lettre
+            ) {
+
                 ++$statistiques['garcons'];
             }
 
-            foreach ($infos['chronos'] as $epreuve => $perf) {
-                ++$statistiques['total_performances'];
-                if (true === $perf['est_qualifie']) {
-                    $est_qualifie_nageur = true;
-                    $epreuves_qualif[] = $epreuve;
-                    ++$statistiques['total_qualifications'];
-                }
-                if (!empty($perf['classement']) && (int) $perf['classement'] > 0 && (int) $perf['classement'] <= 3) {
-                    ++$statistiques['podiums'];
+            foreach (
+                $infos['chronos']
+                as $epreuve => $perf
+            ) {
+
+                ++$statistiques[
+                    'total_performances'
+                ];
+
+                if (
+                    true ===
+                    $perf['est_qualifie']
+                ) {
+
+                    $est_qualifie_nageur =
+                        true;
+
+                    $epreuves_qualif[] =
+                        $epreuve;
+
+                    ++$statistiques[
+                        'total_qualifications'
+                    ];
                 }
             }
-            if ($est_qualifie_nageur) {
-                $statistiques['nageurs_qualifies'][] = ['nom' => $infos['nom'], 'prenom' => $infos['prenom'], 'categorie' => $infos['categorie_libelle'], 'epreuves' => implode(', ', $epreuves_qualif)];
+
+            if (
+                $est_qualifie_nageur
+            ) {
+
+                $statistiques[
+                    'nageurs_qualifies'
+                ][] = [
+
+                    'nom' =>
+                        $infos['nom'],
+
+                    'prenom' =>
+                        $infos['prenom'],
+
+                    'categorie' =>
+                        $infos['categorie_libelle'],
+
+                    'epreuves' =>
+                        implode(
+                            ', ',
+                            $epreuves_qualif
+                        )
+                ];
             }
         }
 
-        require_once __DIR__.'/../views/dashboard.php';
+        /*
+         * Variables utilisées par dashboard.php.
+         */
+        $annees_disponibles =
+            $saisons_disponibles;
+
+        $annee_selectionnee =
+            $saison_selectionnee;
+
+        require_once
+            __DIR__ .
+            '/../views/dashboard.php';
     }
 
     public function getHistoryApi()
     {
-        $nageur_id = $_GET['nageur_id'] ?? 0;
-        $epreuve = $_GET['epreuve'] ?? '';
-        $categorie = $_GET['categorie'] ?? ''; // NOUVEAU : On récupère la catégorie
+        $nageur_id =
+            $_GET['nageur_id'] ?? 0;
 
-        $pdo = Database::getConnection();
-        $model = new PerformanceModel($pdo);
-        $history = $model->getHistorique($nageur_id, $epreuve);
+        $epreuve =
+            $_GET['epreuve'] ?? '';
+
+        $categorie =
+            $_GET['categorie'] ?? '';
+
+        $saison_selectionnee =
+            $_GET['saison'] ?? 'all';
+
+        $pdo =
+            Database::getConnection();
+
+        $model =
+            new PerformanceModel($pdo);
+
+        $history =
+            $model->getHistorique(
+                $nageur_id,
+                $epreuve
+            );
 
         $data = [];
-        foreach ($history as $h) {
+
+        foreach (
+            $history as $h
+        ) {
+
             $data[] = [
-                'date' => $h['date_perf'],
-                'temps_str' => $h['temps'],
-                'temps_sec' => $this->timeToSeconds($h['temps']),
-                'lieu' => $h['lieu'],
+
+                'date' =>
+                    $h['date_perf'],
+
+                'temps_str' =>
+                    $h['temps'],
+
+                'temps_sec' =>
+                    $this->timeToSeconds(
+                        $h['temps']
+                    ),
+
+                'lieu' =>
+                    $h['lieu']
             ];
         }
 
-        // Tri chronologique des dates
-        usort($data, function ($a, $b) {
-            $da = implode('', array_reverse(explode('/', $a['date'])));
-            $db = implode('', array_reverse(explode('/', $b['date'])));
+        usort(
+            $data,
+            function ($a, $b) {
 
-            return strcmp($da, $db);
-        });
+                $da =
+                    implode(
+                        '',
+                        array_reverse(
+                            explode(
+                                '/',
+                                $a['date']
+                            )
+                        )
+                    );
+
+                $db =
+                    implode(
+                        '',
+                        array_reverse(
+                            explode(
+                                '/',
+                                $b['date']
+                            )
+                        )
+                    );
+
+                return strcmp(
+                    $da,
+                    $db
+                );
+            }
+        );
 
         $temps_ref_sec = null;
         $temps_ref_str = null;
 
-        // Recherche du temps de qualif précis pour la catégorie demandée
-        if (!empty($categorie)) {
-            $grille = $model->getGrilleQualifs();
-            if (isset($grille[$categorie][$epreuve])) {
-                $temps_ref_str = $grille[$categorie][$epreuve];
-                $temps_ref_sec = $this->timeToSeconds($temps_ref_str);
+        if (
+            !empty($categorie)
+        ) {
+
+            $grille =
+                $model->getGrilleQualifs(
+                    $saison_selectionnee === 'all'
+                        ? $this->getCurrentSeason()
+                        : $saison_selectionnee
+                );
+
+            if (
+                isset(
+                    $grille[
+                        $categorie
+                    ][$epreuve]
+                )
+            ) {
+
+                $temps_ref_str =
+                    $grille[
+                        $categorie
+                    ][$epreuve
+                    ]['temps_de_ref'];
+
+                if (
+                    $temps_ref_str !== null &&
+                    $temps_ref_str !== ''
+                ) {
+
+                    $temps_ref_sec =
+                        $this->timeToSeconds(
+                            $temps_ref_str
+                        );
+                }
             }
         }
 
-        header('Content-Type: application/json');
+        header(
+            'Content-Type: application/json'
+        );
+
         echo json_encode([
-            'history' => $data,
-            'temps_ref_sec' => $temps_ref_sec,
-            'temps_ref_str' => $temps_ref_str,
+            'history' =>
+                $data,
+
+            'temps_ref_sec' =>
+                $temps_ref_sec,
+
+            'temps_ref_str' =>
+                $temps_ref_str
         ]);
     }
 
     public function exportCsv()
-    { // Inchangé...
-        $pdo = Database::getConnection();
-        $model = new PerformanceModel($pdo);
-        $annee_selectionnee = isset($_GET['saison']) ? $_GET['saison'] : 'all';
-        $lignes_bdd = $model->getPerformances($annee_selectionnee);
-        $grille_qualifs = $model->getGrilleQualifs();
-        $nom_saison = ('all' === $annee_selectionnee) ? 'toutes_saisons' : $annee_selectionnee;
-        $filename = "export_performances_{$nom_saison}_".date('Ymd_His').'.csv';
-        header('Content-Type: text/csv; charset=utf-8');
-        header('Content-Disposition: attachment; filename="'.$filename.'"');
-        $output = fopen('php://output', 'w');
-        fputs($output, "\xEF\xBB\xBF");
-        fputcsv($output, ['Nom', 'Prénom', 'Date de naissance', 'Catégorie', 'Épreuve', 'Temps', 'Date', 'Lieu', 'Classement FR', 'Qualifié ?'], ';');
+    {
+        $pdo =
+            Database::getConnection();
+
+        $model =
+            new PerformanceModel($pdo);
+
+        $saison_selectionnee =
+            isset($_GET['saison'])
+                ? $_GET['saison']
+                : 'all';
+
+        $lignes_bdd =
+            $model->getPerformances(
+                $saison_selectionnee
+            );
+
+        $grille_qualifs =
+            $model->getGrilleQualifs(
+                $saison_selectionnee === 'all'
+                    ? $this->getCurrentSeason()
+                    : $saison_selectionnee
+            );
+
+        /*
+         * Les positions sont calculées uniquement
+         * pour déterminer les qualifications.
+         */
+        $positions_qualification =
+            $this->calculateQualificationPositions(
+                $lignes_bdd
+            );
+
+        $nom_saison =
+            (
+                'all' ===
+                $saison_selectionnee
+            )
+                ? 'toutes_saisons'
+                : $saison_selectionnee;
+
+        $filename =
+            "export_performances_{$nom_saison}_" .
+            date('Ymd_His') .
+            '.csv';
+
+        header(
+            'Content-Type: text/csv; charset=utf-8'
+        );
+
+        header(
+            'Content-Disposition: attachment; filename="' .
+            $filename .
+            '"'
+        );
+
+        $output =
+            fopen(
+                'php://output',
+                'w'
+            );
+
+        fputs(
+            $output,
+            "\xEF\xBB\xBF"
+        );
+
+        fputcsv(
+            $output,
+            [
+                'Nom',
+                'Prénom',
+                'Date de naissance',
+                'Catégorie',
+                'Épreuve',
+                'Temps',
+                'Date',
+                'Lieu',
+                'Qualifié ?'
+            ],
+            ';'
+        );
+
         $categories_actuelles = [];
-        if ('all' === $annee_selectionnee) {
-            $categories_actuelles = $model->getCategoriesActuelles();
+
+        if (
+            'all' ===
+            $saison_selectionnee
+        ) {
+
+            $categories_actuelles =
+                $model->getCategoriesActuelles();
         }
-        if (!empty($lignes_bdd)) {
-            foreach ($lignes_bdd as $ligne) {
-                $nageur_id = $ligne['nageur_id'];
-                if ('all' === $annee_selectionnee && isset($categories_actuelles[$nageur_id])) {
-                    $categorie = $categories_actuelles[$nageur_id]['nom_categorie'];
+
+        if (
+            !empty($lignes_bdd)
+        ) {
+
+            foreach (
+                $lignes_bdd as $ligne
+            ) {
+
+                $nageur_id =
+                    $ligne['nageur_id'];
+
+                if (
+                    'all' ===
+                    $saison_selectionnee &&
+                    isset(
+                        $categories_actuelles[
+                            $nageur_id
+                        ]
+                    )
+                ) {
+
+                    $categorie =
+                        $categories_actuelles[
+                            $nageur_id
+                        ]['nom_categorie'];
+
                 } else {
-                    $categorie = $ligne['categorie'];
+
+                    $categorie =
+                        $ligne['categorie'];
                 }
-                $est_qualifie = 'Non';
-                if (isset($grille_qualifs[$categorie][$ligne['epreuve']])) {
-                    if ($this->timeToSeconds($ligne['temps']) <= $this->timeToSeconds($grille_qualifs[$categorie][$ligne['epreuve']])) {
-                        $est_qualifie = 'Oui';
-                    }
-                } elseif (in_array($categorie, ['FCA', 'HCA']) && !empty($ligne['classement']) && (int) $ligne['classement'] <= 16) {
-                    $est_qualifie = 'Oui';
-                } elseif (in_array($categorie, ['FMI', 'HMI']) && !empty($ligne['classement']) && (int) $ligne['classement'] <= 32) {
-                    $est_qualifie = 'Oui';
+
+                $position =
+                    null;
+
+                $position_key =
+                    $nageur_id .
+                    '|' .
+                    $ligne['epreuve'];
+
+                if (
+                    isset(
+                        $positions_qualification[
+                            $position_key
+                        ]
+                    )
+                ) {
+
+                    $position =
+                        $positions_qualification[
+                            $position_key
+                        ];
                 }
-                fputcsv($output, [$ligne['nom'], $ligne['prenom'], $ligne['date_naissance'], $categorie, $ligne['epreuve'], $ligne['temps'], $ligne['date_perf'], $ligne['lieu'], !empty($ligne['classement']) ? $ligne['classement'] : '-', $est_qualifie], ';');
+
+                $qualification =
+                    $this->isQualified(
+                        $categorie,
+                        $ligne['epreuve'],
+                        $ligne['temps'],
+                        $position,
+                        $grille_qualifs
+                    );
+
+                $est_qualifie =
+                    $qualification === true
+                        ? 'Oui'
+                        : 'Non';
+
+                fputcsv(
+                    $output,
+                    [
+                        $ligne['nom'],
+                        $ligne['prenom'],
+                        $ligne['date_naissance'],
+                        $categorie,
+                        $ligne['epreuve'],
+                        $ligne['temps'],
+                        $ligne['date_perf'],
+                        $ligne['lieu'],
+                        $est_qualifie
+                    ],
+                    ';'
+                );
             }
         }
+
         fclose($output);
     }
 
-    private function timeToSeconds($timeStr)
-    {
-        $parts = explode(':', str_replace(',', '.', $timeStr));
-        if (2 === count($parts)) {
-            return ($parts[0] * 60) + (float) $parts[1];
+    private function timeToSeconds(
+        $timeStr
+    ) {
+        if (
+            $timeStr === null ||
+            $timeStr === ''
+        ) {
+            return PHP_FLOAT_MAX;
         }
 
-        return (float) $parts[0];
+        $parts =
+            explode(
+                ':',
+                str_replace(
+                    ',',
+                    '.',
+                    $timeStr
+                )
+            );
+
+        if (
+            2 === count($parts)
+        ) {
+
+            return
+                ($parts[0] * 60) +
+                (float)$parts[1];
+        }
+
+        return (float)$parts[0];
     }
 }
