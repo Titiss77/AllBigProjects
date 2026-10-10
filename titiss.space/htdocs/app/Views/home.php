@@ -49,7 +49,8 @@
 
 <script>
 document.addEventListener("DOMContentLoaded", function() {
-    let dismissed = JSON.parse(localStorage.getItem('dismissedReleases') || '[]');
+    let dismissed = [];
+    try { dismissed = JSON.parse(localStorage.getItem('dismissedReleases') || '[]'); } catch (_) {}
     const badges = document.querySelectorAll('.release-badge');
     badges.forEach(function(badge) {
         const key = badge.getAttribute('data-key');
@@ -59,7 +60,7 @@ document.addEventListener("DOMContentLoaded", function() {
             badge.addEventListener('click', function() {
                 this.style.display = 'none';
                 dismissed.push(key);
-                localStorage.setItem('dismissedReleases', JSON.stringify(dismissed));
+                try { localStorage.setItem('dismissedReleases', JSON.stringify(dismissed)); } catch (_) {}
             });
         }
     });
@@ -119,6 +120,11 @@ document.addEventListener("DOMContentLoaded", function() {
 <div class="search-container" style="margin-bottom: 2rem;">
     <input type="text" id="liveSearch" class="form-control" placeholder="Rechercher une œuvre... (titre, description)"
         autocomplete="off">
+    <div class="card-filter-bar">
+        <select id="statusFilter" class="form-control card-filter-select" aria-label="Filtrer par statut"><option value="">Tous les statuts</option></select>
+        <select id="categoryFilter" class="form-control card-filter-select" aria-label="Filtrer par catégorie"><option value="">Toutes les catégories</option></select>
+        <span id="cardResultCount" class="card-result-count" aria-live="polite"></span>
+    </div>
 </div>
 
 <?php
@@ -240,7 +246,7 @@ document.addEventListener("DOMContentLoaded", function() {
                                     ?>
 
                                 <div class="card fade-in searchable-card <?php echo 'Terminé' === $item->status ? 'status-completed' : ((!empty($item->episode) && !$isFuture) ? 'needs-dispo-check' : ''); ?>"
-                                    data-id="<?php echo esc($item->id); ?>"
+                                    data-id="<?php echo esc($item->id); ?>" data-status="<?php echo esc($item->status); ?>" data-category="<?php echo esc($divisionName); ?>"
                                     data-url="<?php echo htmlspecialchars($item->getFinalLink()); ?>">
                                     <?php if ($canDragItem) { ?>
                                     <div class="drag-handle"
