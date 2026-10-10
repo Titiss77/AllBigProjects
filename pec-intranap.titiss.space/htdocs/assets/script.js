@@ -1,201 +1,76 @@
 // --- 1. SYNCHRONISATION ---
 
-async function lancerSync() {
+async function lancerSync(tousLesTemps = false) {
+    const btnSync = document.getElementById('btnSync');
+    const btnAll = document.getElementById('btnSyncAllTimes');
+    const btn = tousLesTemps ? btnAll : btnSync;
+    const progressContainer = document.getElementById('progressContainer');
+    const progressBar = document.getElementById('progressBar');
+    const progressText = document.getElementById('progressText');
 
-    const btn =
-        document.getElementById('btnSync');
-
-    const progressContainer =
-        document.getElementById(
-            'progressContainer'
-        );
-
-    const progressBar =
-        document.getElementById(
-            'progressBar'
-        );
-
-    const progressText =
-        document.getElementById(
-            'progressText'
-        );
-
+    if (!btn || !progressContainer || !progressBar || !progressText) return;
     btn.disabled = true;
+    if (btnSync) btnSync.disabled = true;
+    if (btnAll) btnAll.disabled = true;
+    progressContainer.style.display = 'block';
+    progressBar.style.width = '0%';
+    progressBar.style.backgroundColor = 'var(--succes)';
+    progressBar.innerText = '0%';
+    progressText.innerText = 'Initialisation de la synchronisation...';
 
-    btn.style.backgroundColor =
-        "#ccc";
-
-    progressContainer.style.display =
-        'block';
-
-    progressBar.style.width =
-        '0%';
-
-    progressBar.style.backgroundColor =
-        'var(--succes)';
-
-    progressBar.innerText =
-        '0%';
-
-    progressText.innerText =
-        'Initialisation de la synchronisation...';
-
-    const liste_epreuves = [
-        '50SF',
-        '100SF',
-        '200SF',
-        '400SF',
-        '800SF',
-        '1500SF',
-        '50AP',
-        '100IS',
-        '800IS',
-        '200IS',
-        '400IS',
-        '50BI',
-        '100BI',
-        '200BI',
-        '400BI'
-    ];
-
-    const genres = [
-        'F',
-        'M'
-    ];
-
+    const epreuves = ['50SF','100SF','200SF','400SF','800SF','1500SF','50AP','100IS','800IS','200IS','400IS','50BI','100BI','200BI','400BI'];
+    const genres = ['F', 'M'];
+    const selected = document.querySelector('select[name="saison"]')?.value || 'all';
+    const now = new Date();
+    const startYear = now.getMonth() >= 8 ? now.getFullYear() : now.getFullYear() - 1;
+    const currentSeason = `${startYear}-${startYear + 1}`;
+    const seasons = tousLesTemps && selected === 'all'
+        ? [...new Set([...(SYNC_SEASONS || []), currentSeason])]
+        : [selected === 'all' ? currentSeason : selected];
+    if (tousLesTemps && !confirm(`La récupération va interroger ${seasons.length} saison(s) et peut prendre plusieurs minutes. Continuer ?`)) {
+        if (btnSync) btnSync.disabled = false;
+        if (btnAll) btnAll.disabled = false;
+        progressContainer.style.display = 'none';
+        return;
+    }
     const tasks = [];
-
-    for (
-        let epreuve of liste_epreuves
-    ) {
-
-        for (
-            let genre of genres
-        ) {
-
-            tasks.push({
-                epreuve: epreuve,
-                genre: genre
-            });
+    for (const saison of seasons) {
+        for (const epreuve of epreuves) {
+            for (const genre of genres) tasks.push({saison, epreuve, genre});
         }
     }
 
-    const totalSteps =
-        tasks.length;
-
-    let currentStep = 0;
-
-    for (
-        let i = 0;
-        i < totalSteps;
-        i++
-    ) {
-
-        let task =
-            tasks[i];
-
-        let etapeStr =
-            'suite';
-
-        if (
-            i === 0
-        ) {
-            etapeStr =
-                'debut';
-        }
-
-        if (
-            i === totalSteps - 1
-        ) {
-            etapeStr =
-                'fin';
-        }
-
-        progressText.innerText =
-            `Synchronisation en cours : ${task.epreuve} (${task.genre === 'F' ? 'Femmes' : 'Hommes'})...`;
-
+    for (let i = 0; i < tasks.length; i++) {
+        const task = tasks[i];
+        const etape = i === 0 ? 'debut' : (i === tasks.length - 1 ? 'fin' : 'suite');
+        progressText.innerText = `Synchronisation ${task.saison} : ${task.epreuve} (${task.genre === 'F' ? 'Femmes' : 'Hommes'})...`;
         try {
-
-            let url =
-                `index.php?action=sync&token=${encodeURIComponent(CSRF_TOKEN)}&epreuve=${task.epreuve}&genre=${task.genre}&etape=${etapeStr}`;
-
-            let response =
-                await fetch(url);
-
-            let data =
-                await response.json();
-
-            if (
-                data.error
-            ) {
-
-                progressBar.style.backgroundColor =
-                    'var(--danger)';
-
-                progressText.innerText =
-                    "Erreur : " +
-                    data.message;
-
-                btn.disabled =
-                    false;
-
-                btn.style.backgroundColor =
-                    "var(--couleur-secondaire)";
-
-                return;
-            }
-
-            currentStep++;
-
-            let percent =
-                Math.round(
-                    (
-                        currentStep /
-                        totalSteps
-                    ) *
-                    100
-                );
-
-            progressBar.style.width =
-                percent + '%';
-
-            progressBar.innerText =
-                percent + '%';
-
-        } catch (
-            err
-        ) {
-
-            console.error(
-                "Erreur synchronisation :",
-                err
-            );
-
-            progressBar.style.backgroundColor =
-                'var(--danger)';
-
-            progressText.innerText =
-                "Erreur réseau. L'hébergeur a peut-être bloqué la requête.";
-
-            btn.disabled =
-                false;
-
-            btn.style.backgroundColor =
-                "var(--couleur-secondaire)";
-
+            const params = new URLSearchParams({token:CSRF_TOKEN, epreuve:task.epreuve, genre:task.genre, saison:task.saison, etape});
+            const response = await fetch('index.php?action=sync', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8'},
+                body: params.toString(),
+                credentials: 'same-origin'
+            });
+            if (!response.ok) throw new Error(`Erreur HTTP ${response.status}`);
+            const data = await response.json();
+            if (data.error) throw new Error(data.message || 'Erreur de synchronisation');
+            const percent = Math.round(((i + 1) / tasks.length) * 100);
+            progressBar.style.width = `${percent}%`;
+            progressBar.innerText = `${percent}%`;
+        } catch (err) {
+            console.error('Erreur synchronisation :', err);
+            progressBar.style.backgroundColor = 'var(--danger)';
+            progressText.innerText = `Erreur : ${err.message || 'Erreur r?seau.'}`;
+            if (btnSync) btnSync.disabled = false;
+            if (btnAll) btnAll.disabled = false;
             return;
         }
     }
-
-    progressText.innerHTML =
-        "<strong>Synchronisation terminée ! La page va se recharger.</strong>";
-
-    setTimeout(
-        () => {
-            location.reload();
-        },
-        2000
-    );
+    progressText.innerText = 'Synchronisation termin?e ! La page va se recharger.';
+    if (btnSync) btnSync.disabled = false;
+    if (btnAll) btnAll.disabled = false;
+    setTimeout(() => location.reload(), 2000);
 }
 
 
@@ -259,6 +134,16 @@ function filterData()
                     : 'none';
         }
     );
+
+    const panes = Array.from(document.querySelectorAll('.tab-pane'));
+    const activeTab = document.querySelector('.tab-btn.active');
+    if (searchValue !== '' || categoryValue !== 'all') {
+        panes.forEach(pane => { pane.style.display = 'block'; });
+    } else {
+        panes.forEach(pane => {
+            pane.style.display = activeTab && pane.id === activeTab.dataset.target ? 'block' : 'none';
+        });
+    }
 }
 
 
@@ -278,46 +163,47 @@ async function showChart(
     ).style.display =
         'block';
 
+    const title = document.getElementById('chartTitle');
+
     document.getElementById(
         'chartTitle'
     ).innerText =
         "📈 Évolution : " +
         nomComplet;
 
-    let url =
-        'index.php?action=history' +
-        '&nageur_id=' +
-        nageurId +
-        '&epreuve=' +
-        epreuve;
+    const url = new URL('index.php', window.location.href);
+    url.searchParams.set('action', 'history');
+    url.searchParams.set('nageur_id', String(nageurId));
+    url.searchParams.set('epreuve', epreuve);
 
     const saisonSelect =
         document.querySelector('select[name="saison"]');
 
     if (saisonSelect) {
-        url +=
-            '&saison=' +
-            encodeURIComponent(saisonSelect.value);
+        url.searchParams.set('saison', saisonSelect.value);
     }
 
     if (
         categorie !== ''
     ) {
 
-        url +=
-            '&categorie=' +
-            encodeURIComponent(
-                categorie
-            );
+        url.searchParams.set('categorie', categorie);
     }
 
     try {
 
-        let response =
-            await fetch(url);
+        let response = await fetch(url, {credentials: 'same-origin'});
+        if (!response.ok) throw new Error(`Erreur HTTP ${response.status}`);
 
         let responseData =
             await response.json();
+
+        if (!Array.isArray(responseData.history)) {
+            throw new Error('Réponse d’historique invalide.');
+        }
+        if (typeof Chart === 'undefined') {
+            throw new Error('Le module graphique est indisponible.');
+        }
 
         let data =
             responseData.history;
@@ -529,6 +415,7 @@ async function showChart(
             "Erreur lors du chargement du graphique :",
             error
         );
+        title.textContent = `Évolution indisponible : ${error.message}`;
     }
 }
 
@@ -538,6 +425,11 @@ function closeChart()
         'chartModal'
     ).style.display =
         'none';
+
+    if (myChart) {
+        myChart.destroy();
+        myChart = null;
+    }
 }
 
 
@@ -565,76 +457,29 @@ function exporterCsv()
             ? saisonSelect.value
             : 'all';
 
-    window.location.href =
-        'index.php?action=export&saison=' +
-        encodeURIComponent(
-            saison
-        );
+    const modeSelect = document.getElementById('displayMode');
+    const params = new URLSearchParams({action: 'export', saison});
+    if (modeSelect) params.set('affichage', modeSelect.value);
+    window.location.href = `index.php?${params.toString()}`;
 }
 
 
 // --- 5. STATISTIQUES ---
 
-function toggleStats()
-{
-    let tableContainer =
-        document.getElementById(
-            'tableContainer'
-        );
+function toggleStats() {
+    const tableContainer = document.getElementById('tableContainer');
+    const statsContainer = document.getElementById('statsContainer');
+    const btnToggle = document.getElementById('btnToggleStats');
+    if (!statsContainer || !btnToggle) return;
 
-    let statsContainer =
-        document.getElementById(
-            'statsContainer'
-        );
+    const showStats = window.getComputedStyle(statsContainer).display === 'none';
+    statsContainer.style.display = showStats ? 'block' : 'none';
+    if (tableContainer) tableContainer.style.display = showStats ? 'none' : 'block';
 
-    let btnToggle =
-        document.getElementById(
-            'btnToggleStats'
-        );
-
-    if (
-        statsContainer.style.display ===
-        'none'
-    ) {
-
-        statsContainer.style.display =
-            'block';
-
-        if (
-            tableContainer
-        ) {
-
-            tableContainer.style.display =
-                'none';
-        }
-
-        btnToggle.innerHTML =
-            '📋 Retour au Tableau';
-
-        btnToggle.style.backgroundColor =
-            'var(--couleur-principale)';
-
-    } else {
-
-        statsContainer.style.display =
-            'none';
-
-        if (
-            tableContainer
-        ) {
-
-            tableContainer.style.display =
-                'block';
-        }
-
-        btnToggle.innerHTML =
-            '📊 Afficher les Statistiques';
-
-        btnToggle.style.backgroundColor =
-            '#17a2b8';
-    }
+    btnToggle.classList.toggle('is-active', showStats);
+    btnToggle.setAttribute('aria-expanded', showStats ? 'true' : 'false');
+    btnToggle.textContent = showStats ? 'Retour au tableau' : 'Afficher les statistiques';
 }
-
 
 // --- 6. LOGS ---
 
@@ -669,6 +514,10 @@ async function voirLogs()
             await fetch(
                 'index.php?action=get_logs'
             );
+
+        if (!response.ok) {
+            throw new Error(`Erreur HTTP ${response.status}`);
+        }
 
         const rawText =
             await response.text();
@@ -838,6 +687,16 @@ async function voirLogs()
     }
 }
 
+function escapeHtml(value) {
+    return String(value).replace(/[&<>"']/g, char => ({
+        '&': '&amp;',
+        '<': '&lt;',
+        '>': '&gt;',
+        '"': '&quot;',
+        "'": '&#39;'
+    })[char]);
+}
+
 function parseLogLine(
     line
 ) {
@@ -910,13 +769,13 @@ function parseLogLine(
                     : "";
 
             detailHtml =
-                `<div class="log-name">${namePart}</div>` +
-                `<div class="log-change">${changePart}</div>`;
+                `<div class="log-name">${escapeHtml(namePart)}</div>` +
+                `<div class="log-change">${escapeHtml(changePart)}</div>`;
 
         } else {
 
             detailHtml =
-                `<div class="log-details">${content.replace(/\[.*?\]/, '').trim()}</div>`;
+                `<div class="log-details">${escapeHtml(content.replace(/\[.*?\]/, '').trim())}</div>`;
         }
 
         return `
@@ -939,7 +798,7 @@ function parseLogLine(
                 <div
                     style="font-size:0.75rem; color:var(--texte-secondaire); min-width:40px; text-align:right; font-weight:bold;">
 
-                    ${heure}
+                    ${escapeHtml(heure)}
 
                 </div>
 
@@ -961,7 +820,7 @@ function parseLogLine(
 
                 <div class="log-details">
                     Détail technique :
-                    ${line}
+                    ${escapeHtml(line)}
                 </div>
 
             </div>
@@ -1087,6 +946,27 @@ function closePdfModal()
 
 
 // --- FERMETURE DES MODALES ---
+
+document.addEventListener('click', function (event) {
+    const tab = event.target.closest('.tab-btn[data-target]');
+    if (tab) {
+        openEpreuve({currentTarget: tab}, tab.dataset.target);
+        filterData();
+    }
+
+    const cell = event.target.closest('.cell-temps[data-nageur-id]');
+    if (cell) {
+        showChart(cell.dataset.nageurId, cell.dataset.epreuve, cell.dataset.nom, cell.dataset.categorie);
+    }
+});
+
+document.addEventListener('keydown', function (event) {
+    const cell = event.target.closest('.cell-temps[data-nageur-id]');
+    if (cell && (event.key === 'Enter' || event.key === ' ')) {
+        event.preventDefault();
+        showChart(cell.dataset.nageurId, cell.dataset.epreuve, cell.dataset.nom, cell.dataset.categorie);
+    }
+});
 
 window.onclick =
     function (event) {
